@@ -65,14 +65,16 @@ struct BrhbpDoc {
 extern "C" {
 
 BrhbpJob* brhbp_open_fd(int fd, int32_t paper, int32_t dpi, int32_t copies,
-                        bool duplex, bool toner_save, const char* job_name) {
+                        int32_t duplex, bool toner_save, const char* job_name) {
   auto* j = new BrhbpJob;
   j->sink = std::make_unique<FdSink>(fd);
   brhbp::JobSettings js;
   js.paper      = PaperOf(paper);
   js.dpi        = dpi;
   js.copies     = copies;
-  js.duplex     = duplex ? brhbp::Duplex::kLongEdge : brhbp::Duplex::kNone;
+  js.duplex     = duplex == 1 ? brhbp::Duplex::kLongEdge
+                : duplex == 2 ? brhbp::Duplex::kShortEdge
+                              : brhbp::Duplex::kNone;
   js.toner_save = toner_save;
   js.job_name   = job_name ? job_name : "job";
   j->enc = std::make_unique<brhbp::JobEncoder>(j->sink.get(), js);
@@ -119,7 +121,8 @@ int32_t brhbp_doc_pages(BrhbpDoc* d) {
 }
 
 bool brhbp_doc_render_band(BrhbpDoc* d, int32_t pno, int32_t dpi, int32_t paper,
-                           int32_t y0, int32_t n_rows, int32_t halftone, uint8_t* dst) {
+                           int32_t y0, int32_t n_rows, int32_t halftone,
+                           bool rotate180, bool fit, uint8_t* dst) {
   brhbp::PageGeometry g = brhbp::ComputeGeometry(PaperOf(paper), dpi);
   const size_t stride = g.stride;
   std::memset(dst, 0, stride * static_cast<size_t>(n_rows));
@@ -138,9 +141,38 @@ bool brhbp_doc_render_band(BrhbpDoc* d, int32_t pno, int32_t dpi, int32_t paper,
 
   const float scale = dpi / 72.0f;
   const fz_rect bounds = fz_bound_page(d->ctx, page);
-  fz_matrix m = fz_scale(scale, scale);
-  m = fz_concat(m, fz_translate(-bounds.x0 * scale - g.origin_x,
-                                -bounds.y0 * scale - g.origin_y));
+  const float page_w = (bounds.x1 - bounds.x0) * scale;
+  const float page_h = (bounds.y1 - bounds.y0) * scale;
+
+  // Scale, put the page at [0,W]x[0,H], optionally spin it 180 about its own
+  // centre, then slide the printable window's top-left to the origin. This is
+  // the same order brpdf.c uses: it rotates the whole page bitmap and only
+  // then crops to the margins.
+  fz_matrix m;
+  if (fit) {
+    // Fit the page to the printable area and centre it, so any page size
+    // prints whole on whatever paper is loaded.
+    const float sw = static_cast<float>(g.width_px) / (bounds.x1 - bounds.x0);
+    const float sh = static_cast<float>(g.rows)     / (bounds.y1 - bounds.y0);
+    const float sf = sw < sh ? sw : sh;
+    const float fw = (bounds.x1 - bounds.x0) * sf;
+    const float fh = (bounds.y1 - bounds.y0) * sf;
+    m = fz_scale(sf, sf);
+    m = fz_concat(m, fz_translate(-bounds.x0 * sf, -bounds.y0 * sf));
+    if (rotate180) {
+      m = fz_concat(m, fz_rotate(180));
+      m = fz_concat(m, fz_translate(fw, fh));
+    }
+    m = fz_concat(m, fz_translate((g.width_px - fw) / 2.0f, (g.rows - fh) / 2.0f));
+  } else {
+    m = fz_scale(scale, scale);
+    m = fz_concat(m, fz_translate(-bounds.x0 * scale, -bounds.y0 * scale));
+    if (rotate180) {
+      m = fz_concat(m, fz_rotate(180));
+      m = fz_concat(m, fz_translate(page_w, page_h));
+    }
+    m = fz_concat(m, fz_translate(-g.origin_x, -g.origin_y));
+  }
 
   fz_irect bbox = { 0, y0, g.width_px, y0 + n_rows };
   fz_pixmap* pix = nullptr;

@@ -85,6 +85,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(a, "-c") && i + 1 < argc) js.copies = std::atoi(argv[++i]);
     else if (!std::strcmp(a, "-j") && i + 1 < argc) js.job_name = argv[++i];
     else if (!std::strcmp(a, "-d")) js.duplex = brhbp::Duplex::kLongEdge;
+    else if (!std::strcmp(a, "-D")) js.duplex = brhbp::Duplex::kShortEdge;
     else if (!std::strcmp(a, "-e")) js.toner_save = true;
     else if (!std::strcmp(a, "-R")) norotate = true;
     else { std::fprintf(stderr, "unknown option %s\n", a); return 2; }
@@ -100,7 +101,7 @@ int main(int argc, char** argv) {
   while (PbmRead(stdin, &w, &h, &bits)) {
     if (!began) { if (!enc.Begin()) return 1; began = true; }
     ++page;
-    const bool back = js.duplex == brhbp::Duplex::kLongEdge && !norotate && (page % 2 == 0);
+    const bool back = brhbp::BackSideNeedsRotation(js.duplex) && !norotate && (page % 2 == 0);
     if (back) Rotate180(bits, w, h);
 
     const size_t src_stride = (static_cast<size_t>(w) + 7) / 8;

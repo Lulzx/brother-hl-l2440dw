@@ -37,6 +37,31 @@ public enum Halftone: Int32, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Long edge is book style: the duplexer physically flips the sheet about its
+/// short edge, so the host must pre-rotate the back image 180. Short edge
+/// (notepad style) needs no rotation. Getting this pair backwards prints every
+/// second page upside down, which is the only symptom.
+public enum DuplexMode: Int32, CaseIterable, Identifiable, Sendable {
+    case off = 0, longEdge = 1, shortEdge = 2
+    public var id: Int32 { rawValue }
+    public var label: String {
+        switch self {
+        case .off: "Off"
+        case .longEdge: "Long edge"
+        case .shortEdge: "Short edge"
+        }
+    }
+    public var detail: String {
+        switch self {
+        case .off: "One side only."
+        case .longEdge: "Book style. Flip left-to-right to read the back."
+        case .shortEdge: "Notepad style. Flip top-to-bottom to read the back."
+        }
+    }
+    /// Whether the back image must be pre-rotated before encoding.
+    public var rotatesBackSide: Bool { self == .longEdge }
+}
+
 public enum DeviceState: Int32, Sendable {
     case unknown = 0, other = 1, idle = 3, printing = 4, warmup = 5
     public var label: String {
@@ -112,7 +137,7 @@ public actor PrintEngine {
         paper: Paper,
         dpi: Int32,
         copies: Int32,
-        duplex: Bool,
+        duplex: DuplexMode,
         tonerSave: Bool,
         halftone: Halftone,
         maxPages: Int32 = 0,
@@ -135,7 +160,8 @@ public actor PrintEngine {
         fd = sock
         defer { if fd >= 0 { close(fd); fd = -1 } }
 
-        guard let j = brhbp_open_fd(fd, paper.rawValue, dpi, copies, duplex, tonerSave, "brhbp")
+        guard let j = brhbp_open_fd(fd, paper.rawValue, dpi, copies, duplex.rawValue,
+                                    tonerSave, "brhbp")
         else { onProgress(.failed("Could not start the job.")); return }
         job = j
         handleForCancel = UnsafeMutableRawPointer(j)
@@ -158,9 +184,13 @@ public actor PrintEngine {
             var pageOK = true
             while y < g.rows {
                 let n = min(bandRows, g.rows - y)
+                // Back side of a duplex sheet must be pre-rotated: the engine
+                // prints it as received and the sheet flips about its long edge.
+                let back = duplex.rotatesBackSide && (p % 2 == 1)
                 let rendered = band.withUnsafeMutableBufferPointer { buf in
                     brhbp_doc_render_band(doc, Int32(p), dpi, paper.rawValue,
-                                          y, n, halftone.rawValue, buf.baseAddress!)
+                                          y, n, halftone.rawValue, back,
+                                          /*fit:*/ true, buf.baseAddress!)
                 }
                 guard rendered else { pageOK = false; break }
                 let wrote = band.withUnsafeBufferPointer { buf in

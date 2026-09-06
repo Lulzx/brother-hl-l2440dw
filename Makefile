@@ -2,7 +2,12 @@ CC      ?= cc
 CFLAGS  ?= -std=c99 -O2 -Wall -Wextra
 PDF     ?= test/sample.pdf
 # The target printer. Override on the command line or in the environment.
-PRINTER ?= 192.168.1.17
+# Set BRPRINTER (or PRINTER) to your printer's address.
+PRINTER ?= $(BRPRINTER)
+# Targets that talk to the device check this rather than failing obscurely.
+require-printer:
+	@test -n "$(PRINTER)" || { \
+	  echo "set BRPRINTER or PRINTER, e.g. make print PRINTER=10.0.0.5"; exit 2; }
 PORT    ?= 9100
 PAPER   ?= LETTER
 DPI     ?= 600
@@ -63,4 +68,4 @@ test: brpdf ref/refenc
 clean:
 	rm -rf brpdf ref/refenc job.prn cal.prn out cal-out test/out* test/spool test/*.prn test/*.pbm
 
-.PHONY: all cpp cpp-test cpp-bench simulate print status probe cal-preview test clean
+.PHONY: all require-printer cpp cpp-test cpp-bench simulate print status probe cal-preview test clean

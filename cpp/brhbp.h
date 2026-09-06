@@ -53,7 +53,14 @@ enum class Paper  { kA4, kLetter, kLegal, kA5, kA6, kB5, kB6, kExecutive,
 enum class Media  { kPlain, kThin, kThick, kThicker, kBond, kTrans, kEnv,
                     kEnvThick, kEnvThin };
 enum class Tray   { kAuto, kT1, kT2, kT3, kMP, kManual };
-enum class Duplex { kNone, kLongEdge };
+// Long edge = book style. The engine's duplexer physically flips the sheet
+// about its short edge, so long-edge binding needs the back image pre-rotated
+// 180 by the host; short-edge binding needs it left alone. That asymmetry is
+// why brlaser's PPD says "Duplex rotated" for the long-edge case.
+enum class Duplex { kNone, kLongEdge, kShortEdge };
+
+// True when the back side of a sheet must be pre-rotated by the caller.
+inline bool BackSideNeedsRotation(Duplex d) { return d == Duplex::kLongEdge; }
 
 struct JobSettings {
   Paper  paper       = Paper::kA4;

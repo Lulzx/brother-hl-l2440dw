@@ -30,8 +30,9 @@ typedef struct {
 // --- encoding ---------------------------------------------------------------
 // paper: 0 A4, 1 Letter, 2 Legal, 3 A5, 4 A6, 5 B5, 6 B6, 7 Executive,
 //        8 C5, 9 DL, 10 Monarch
+// duplex: 0 off, 1 long edge (back pages must be pre-rotated), 2 short edge.
 BrhbpJob* brhbp_open_fd(int fd, int32_t paper, int32_t dpi, int32_t copies,
-                        bool duplex, bool toner_save, const char* job_name);
+                        int32_t duplex, bool toner_save, const char* job_name);
 BrhbpGeometry brhbp_geometry(BrhbpJob*);
 bool brhbp_begin(BrhbpJob*);
 bool brhbp_begin_page(BrhbpJob*);
@@ -49,9 +50,15 @@ BrhbpDoc* brhbp_doc_open(const char* path);
 int32_t   brhbp_doc_pages(BrhbpDoc*);
 // Renders rows [y0, y0+n) of `page` into `dst` as 1bpp, MSB first, 1 = black.
 // halftone: 0 Bayer, 1 threshold, 2 Floyd-Steinberg.
+//
+// `rotate180` must be set for the back side of a long-edge duplex sheet. The
+// engine prints the back exactly as received and the sheet is flipped about
+// its long edge, so the host has to pre-rotate. Forgetting it is invisible in
+// simplex and prints every second page upside down in duplex.
 bool      brhbp_doc_render_band(BrhbpDoc*, int32_t page, int32_t dpi,
                                 int32_t paper, int32_t y0, int32_t n_rows,
-                                int32_t halftone, uint8_t* dst);
+                                int32_t halftone, bool rotate180, bool fit,
+                                uint8_t* dst);
 // 8-bit gray preview of a whole page at `scale` (points -> pixels).
 bool      brhbp_doc_preview(BrhbpDoc*, int32_t page, float scale,
                             int32_t* out_w, int32_t* out_h, uint8_t** out_gray);

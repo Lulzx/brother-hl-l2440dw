@@ -220,7 +220,9 @@ bool JobEncoder::BeginPage() {
   if (!EmitF("@PJL ENTER LANGUAGE = PCL\n")) return false;
   if (!EmitF("\033E")) return false;                          // PCL reset
   if (!EmitF("\033&l%dX", settings_.copies)) return false;    // copies
-  if (settings_.duplex == Duplex::kLongEdge && !EmitF("\033&l2S")) return false;
+  // ESC & l 2 S = long-edge duplex, 1 S = short-edge.
+  if (settings_.duplex == Duplex::kLongEdge  && !EmitF("\033&l2S")) return false;
+  if (settings_.duplex == Duplex::kShortEdge && !EmitF("\033&l1S")) return false;
 
   std::memset(ref_, 0, geom_.stride);
   band_len_ = 0; band_rows_ = 0; row_index_ = 0;

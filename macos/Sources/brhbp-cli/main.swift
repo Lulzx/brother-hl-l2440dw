@@ -19,11 +19,12 @@ guard args.count >= 2 else {
 
 // args[1] is the document unless it is a flag, so `--status` works alone.
 var path = args[1].hasPrefix("--") ? "" : args[1]
-var host = "192.168.1.17"
+var host = ProcessInfo.processInfo.environment["BRPRINTER"] ?? ""
 var paper = Paper.a4
 var dpi: Int32 = 600
 var copies: Int32 = 1
-var duplex = false, tonerSave = false, statusOnly = false
+var duplex = DuplexMode.off
+var tonerSave = false, statusOnly = false
 var halftone = Halftone.ordered
 var maxPages: Int32 = 0
 var cancelAfter: Double = 0
@@ -37,7 +38,8 @@ while i < args.count {
     case "--dpi":        i += 1; dpi = Int32(args[i]) ?? 600
     case "--copies":     i += 1; copies = Int32(args[i]) ?? 1
     case "--pages":      i += 1; maxPages = Int32(args[i]) ?? 0
-    case "--duplex":     duplex = true
+    case "--duplex":     duplex = .longEdge
+    case "--duplex-short": duplex = .shortEdge
     case "--toner-save": tonerSave = true
     case "--status":     statusOnly = true
     case "--previews":   i += 1; previewCount = Int(args[i]) ?? 0

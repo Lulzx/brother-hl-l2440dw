@@ -77,6 +77,8 @@ int main(int argc, char** argv) {
   brhbp::JobSettings js;
   const char* path = nullptr;
   bool threshold_only = false, quiet = false, discard = false, diffuse = false;
+  bool norotate = false;
+  bool fit = true;          // scale pages to the paper by default
   for (int i = 1; i < argc; ++i) {
     const char* a = argv[i];
     if (!std::strcmp(a, "-p") && i + 1 < argc) js.paper = ParsePaper(argv[++i]);
@@ -84,9 +86,12 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(a, "-c") && i + 1 < argc) js.copies = std::atoi(argv[++i]);
     else if (!std::strcmp(a, "-j") && i + 1 < argc) js.job_name = argv[++i];
     else if (!std::strcmp(a, "-d")) js.duplex = brhbp::Duplex::kLongEdge;
+    else if (!std::strcmp(a, "-D")) js.duplex = brhbp::Duplex::kShortEdge;
     else if (!std::strcmp(a, "-e")) js.toner_save = true;
     else if (!std::strcmp(a, "-t")) threshold_only = true;
     else if (!std::strcmp(a, "-E")) diffuse = true;
+    else if (!std::strcmp(a, "-R")) norotate = true;
+    else if (!std::strcmp(a, "-1")) fit = false;
     else if (!std::strcmp(a, "-q")) quiet = true;
     else if (!std::strcmp(a, "-n")) discard = true;   // benchmark: encode, drop
     else if (a[0] != '-') path = a;
@@ -97,6 +102,7 @@ int main(int argc, char** argv) {
       "usage: brhbp_pdf [-p PAPER] [-r DPI] [-c N] [-d] [-e] [-t] [-n] doc.pdf > job.prn\n"
       "  -t  plain threshold instead of ordered dither\n"
       "  -E  Floyd-Steinberg error diffusion (better photos, see note)\n"
+      "  -R  do not rotate duplex back pages\n"
       "  -n  encode but discard output (benchmark)\n");
     return 2;
   }
@@ -137,10 +143,45 @@ int main(int argc, char** argv) {
   for (int pno = 0; pno < npages; ++pno) {
     fz_page* page = fz_load_page(ctx, doc, pno);
     const fz_rect bounds = fz_bound_page(ctx, page);
-    // Device space: printable-area top-left becomes pixel (0,0).
-    fz_matrix m = fz_scale(scale, scale);
-    m = fz_concat(m, fz_translate(-bounds.x0 * scale - g.origin_x,
-                                  -bounds.y0 * scale - g.origin_y));
+    const float page_w = (bounds.x1 - bounds.x0) * scale;
+    const float page_h = (bounds.y1 - bounds.y0) * scale;
+
+    // Back side of a long-edge duplex sheet: the engine prints it as received
+    // and the sheet flips about its long edge, so the host pre-rotates. Same
+    // order as brpdf.c -- rotate the whole page, then crop to the margins.
+    const bool back = brhbp::BackSideNeedsRotation(js.duplex) && !norotate
+                      && (pno % 2 == 1);
+
+    fz_matrix m;
+    if (fit) {
+      // Scale the page down to the printable area and centre it, so a Letter
+      // PDF on A4 (or the reverse) prints whole instead of losing a strip off
+      // the edge. Rotation for the back side is about the printable window,
+      // which is what "centred on the sheet" means once the page has been
+      // refitted.
+      const float sw = static_cast<float>(g.width_px) / (bounds.x1 - bounds.x0);
+      const float sh = static_cast<float>(g.rows)     / (bounds.y1 - bounds.y0);
+      const float sf = sw < sh ? sw : sh;
+      const float fw = (bounds.x1 - bounds.x0) * sf;
+      const float fh = (bounds.y1 - bounds.y0) * sf;
+      m = fz_scale(sf, sf);
+      m = fz_concat(m, fz_translate(-bounds.x0 * sf, -bounds.y0 * sf));
+      if (back) {
+        m = fz_concat(m, fz_rotate(180));
+        m = fz_concat(m, fz_translate(fw, fh));
+      }
+      m = fz_concat(m, fz_translate((g.width_px - fw) / 2.0f, (g.rows - fh) / 2.0f));
+    } else {
+      // 1:1. Rotate the whole sheet then crop to the margins, exactly as
+      // brpdf.c does, so this path stays comparable to the reference.
+      m = fz_scale(scale, scale);
+      m = fz_concat(m, fz_translate(-bounds.x0 * scale, -bounds.y0 * scale));
+      if (back) {
+        m = fz_concat(m, fz_rotate(180));
+        m = fz_concat(m, fz_translate(page_w, page_h));
+      }
+      m = fz_concat(m, fz_translate(-g.origin_x, -g.origin_y));
+    }
 
     if (!enc.BeginPage()) { std::fprintf(stderr, "sink error\n"); return 1; }
     if (diffuse) { std::fill(err_cur.begin(), err_cur.end(), 0);

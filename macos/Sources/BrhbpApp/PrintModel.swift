@@ -14,14 +14,14 @@ final class PrintModel {
     var selectedPage = 0
 
     // Destination
-    var host = "192.168.1.17"
+    var host = ProcessInfo.processInfo.environment["BRPRINTER"] ?? ""
     var port: UInt16 = 9100
 
     // Settings
     var paper: Paper = .a4
     var dpi: Int32 = 600
     var copies: Int32 = 1
-    var duplex = false
+    var duplex: DuplexMode = .off
     var tonerSave = false
     var halftone: Halftone = .ordered
 

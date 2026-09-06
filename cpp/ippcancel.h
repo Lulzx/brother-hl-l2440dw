@@ -34,7 +34,7 @@ struct IppStatus {
   std::string detail;
 };
 
-// host: bare address, e.g. "192.168.1.17". resource: usually "/ipp/print".
+// host: bare address, e.g. "10.0.0.5". resource: usually "/ipp/print".
 IppStatus CancelCurrentJob(const char* host, int port, const char* resource,
                            const char* user, int timeout_ms = 5000);
 IppStatus CancelJob(const char* host, int port, const char* resource,

@@ -27,7 +27,7 @@ sent as `application/octet-stream`. The printer does not acknowledge raw jobs;
 PJL `INFO`/`INQUIRE` queries get a text reply terminated with a form feed.
 
 Confirmed on real hardware -- an HL-L2440DW, firmware `Ver.1.23` and `Ver.1.24`,
-model ID `84U-M27`, network board `Brother NC-9300w` -- at 192.168.1.17:
+model ID `84U-M27`, network board `Brother NC-9300w`:
 
     @PJL INFO ID  ->  "Brother HL-L2440DW:84U-M27:Ver.1.23"\f
     @PJL ECHO x   ->  @PJL ECHO x\f
@@ -50,7 +50,7 @@ appear in a Bonjour printer picker; address it by IP.
 
 ## 1b. What the hardware itself reports
 
-Read off the unit at 192.168.1.17 (firmware `Ver.1.24`, model ID `84U-M27`,
+Read off the unit (firmware `Ver.1.24`, model ID `84U-M27`,
 network board `Brother NC-9300w`) with `tools/probe.py`. Checked on both
 `Ver.1.23` and `Ver.1.24`: the update changed none of the values below, and in
 particular did not resolve either contradiction. Everything here is

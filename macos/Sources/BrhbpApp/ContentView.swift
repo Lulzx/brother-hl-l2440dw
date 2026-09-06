@@ -74,7 +74,14 @@ private struct SettingsSidebar: View {
                     Text("1200 dpi").tag(Int32(1200))
                 }
                 Stepper("Copies: \(model.copies)", value: $model.copies, in: 1...999)
-                Toggle("Two-sided (long edge)", isOn: $model.duplex)
+                Picker("Two-sided", selection: $model.duplex) {
+                    ForEach(DuplexMode.allCases) { Text($0.label).tag($0) }
+                }
+                if model.duplex != .off {
+                    Text(model.duplex.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Toggle("Toner save", isOn: $model.tonerSave)
             }
 

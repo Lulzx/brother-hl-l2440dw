@@ -12,9 +12,14 @@
 set -eu
 
 # The HL-L2440DW found on this LAN.  Override with BRPRINTER / BRPORT in the
-# environment, e.g.  BRPRINTER=192.168.1.42 ./brprint doc.pdf
-PRINTER=${BRPRINTER:-192.168.1.17}
+# environment, e.g.  BRPRINTER=10.0.0.5 ./brprint doc.pdf
+PRINTER=${BRPRINTER:-}
 PORT=${BRPORT:-9100}
+if [ -z "$PRINTER" ]; then
+  echo "brprint: set BRPRINTER to your printer's address, e.g." >&2
+  echo "         BRPRINTER=10.0.0.5 ./brprint doc.pdf" >&2
+  exit 2
+fi
 
 cd "$(dirname "$0")"
 

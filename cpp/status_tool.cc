@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 int main(int argc, char** argv) {
-  const char* host = "192.168.1.17";
+  const char* host = getenv("BRPRINTER") ? getenv("BRPRINTER") : "";
   const char* comm = "public";
   int watch = 0;
   for (int i = 1; i < argc; ++i) {
@@ -16,6 +16,7 @@ int main(int argc, char** argv) {
     else if (!strcmp(argv[i], "-w") && i + 1 < argc) watch = atoi(argv[++i]);
     else { fprintf(stderr, "usage: %s [-h host] [-c community] [-w seconds]\n", argv[0]); return 2; }
   }
+  if (!*host) { fprintf(stderr, "set BRPRINTER or pass -h HOST\n"); return 2; }
   int64_t last = -1;
   for (;;) {
     brhbp::DeviceStatus s = brhbp::PollStatus(host, comm);

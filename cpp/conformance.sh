@@ -28,6 +28,8 @@ python3 tools/testpage.py --paper A4 --dpi 600 --pages P1,P2 > /tmp/conf.pbm 2>/
 run "2 pages"             -p A4 -r 600 -j t
 run "2 pages duplex"      -p A4 -r 600 -j t -d
 run "2 pages duplex -R"   -p A4 -r 600 -j t -d -R
+# Short-edge has no brpdf counterpart (brpdf never emits ESC&l1S), so it is
+# covered by duplex_check.sh against the renderer's own geometry instead.
 
 python3 tools/restest.py --dpi 1200 > /tmp/conf.pbm 2>/dev/null
 run "A4 1200"             -p A4 -r 1200 -j t

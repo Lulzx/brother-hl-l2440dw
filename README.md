@@ -36,7 +36,7 @@ The printer is Mopria 2.1 certified and advertises `image/urf` and
 `image/pwg-raster`, so CUPS drives it with no driver and no vendor software:
 
 ```sh
-lpadmin -p brother -E -v ipp://192.168.1.17/ipp/print -m everywhere
+lpadmin -p brother -E -v ipp://$BRPRINTER/ipp/print -m everywhere
 lp -d brother doc.pdf
 ```
 
@@ -85,7 +85,7 @@ URF directly with `ipptool` is accepted and printed, and the printer echoes
 `printer-resolution = 600dpi` back rather than coercing it:
 
 ```sh
-ipptool -tv ipp://192.168.1.17/ipp/print print600.test   # -> successful-ok
+ipptool -tv ipp://$BRPRINTER/ipp/print print600.test   # -> successful-ok
 ```
 
 To get there through a normal queue, add a 600 dpi tier to the generated PPD
@@ -142,7 +142,7 @@ It is *not* discoverable over Bonjour -- nothing answers `_ipp._tcp` or
 its own. It *does* answer PJL on 9100, but only if the client keeps its side of
 the socket open; `nc` half-closes and so sees nothing. See `FORMAT.md` section 1.
 
-To send by hand instead: `nc 192.168.1.17 9100 < job.prn`, or
+To send by hand instead: `nc $BRPRINTER 9100 < job.prn`, or
 `lp -d <raw-queue> -o raw job.prn` against a CUPS raw queue. To send to the
 simulator (`./brprint --sim doc.pdf`, or by hand):
 
@@ -230,7 +230,7 @@ a clip of up to ~1.4mm at the extreme edges is not ruled out. Note the test
 suite cannot settle this either way -- `brpdf` and `brsim.py` were written from
 the same assumption and so agree with each other regardless.
 
-To close it: `make cal.prn && nc 192.168.1.17 9100 < cal.prn`, then measure
+To close it: `make cal.prn && nc $BRPRINTER 9100 < cal.prn`, then measure
 paper edge to the solid corner L. 2.82mm means brlaser is right; 4.23mm, or a
 sliced-off L, means the firmware is and `brpdf` is losing content at the edges.
 The 12pt figure may well be only what the IPP/AirPrint stack guarantees rather

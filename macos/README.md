@@ -93,10 +93,10 @@ concurrently with a print job, which a second connection to port 9100 does not.
 It is not a reimplementation -- it links `BrhbpKit`, so it drives the identical
 `PrintEngine` actor, bridge and band renderer the UI does.
 
-    $ brhbp-cli --status --host 192.168.1.17
+    $ brhbp-cli --status --host $BRPRINTER
     Ready  faults=none  impressions=1916
 
-    $ brhbp-cli ../test/sample.pdf --host 192.168.1.17 --paper A4 --dpi 600 --pages 1
+    $ brhbp-cli ../test/sample.pdf --host $BRPRINTER --paper A4 --dpi 600 --pages 1
     2:48:51.91  before: Ready, faults=none, impressions=1915
     2:48:51.91  connecting
     2:48:51.92  sending page 1/1

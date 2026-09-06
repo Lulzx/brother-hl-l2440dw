@@ -38,6 +38,7 @@ test: brhbp_tool cancel_test snmp_encode_test
 	./conformance.sh
 	./cancel_check.sh
 	./snmp_check.sh
+	./duplex_check.sh
 
 bench: brhbp_bench
 	./brhbp_bench 600 30

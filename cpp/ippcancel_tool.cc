@@ -5,7 +5,7 @@
 #include <cstring>
 
 int main(int argc, char** argv) {
-  const char* host = "192.168.1.17";
+  const char* host = getenv("BRPRINTER") ? getenv("BRPRINTER") : "";
   const char* res  = "/ipp/print";
   const char* user = "brhbp";
   const char* op   = "current";
@@ -21,6 +21,7 @@ int main(int argc, char** argv) {
     else { fprintf(stderr, "usage: %s [-h host] [-P port] [-r res] [-u user] "
                            "[--current | --purge | -i JOBID]\n", argv[0]); return 2; }
   }
+  if (!*host) { fprintf(stderr, "set BRPRINTER or pass -h HOST\n"); return 2; }
   brhbp::IppStatus s;
   if (!strcmp(op, "purge"))       s = brhbp::PurgeJobs(host, port, res, user);
   else if (!strcmp(op, "job"))    s = brhbp::CancelJob(host, port, res, user, job);

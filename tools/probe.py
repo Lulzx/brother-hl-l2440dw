@@ -26,7 +26,7 @@ import sys
 import time
 
 UEL = b"\x1b%-12345X"
-DEFAULT_IP = "192.168.1.17"
+DEFAULT_IP = os.environ.get("BRPRINTER", "")   # set BRPRINTER, or pass an address
 
 # Printer MIB.  Margins come back in micrometres; the IPP path reports the
 # same numbers in hundredths of a millimetre.
