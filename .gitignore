@@ -8,3 +8,6 @@ spool/
 *.pbm
 .DS_Store
 cal-out/
+cpp/brhbp_tool
+cpp/brhbp_bench
+cpp/brhbp_pdf
