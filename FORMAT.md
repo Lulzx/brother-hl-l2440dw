@@ -18,7 +18,9 @@ Mopria 2.1 certified. That is a second, standards-based, driver-free path: a
 stock CUPS `-m everywhere` queue drives the device with no driver at all. It is
 not the Brother pipeline and is not documented here, but it is the easier route
 for everyday printing -- with the caveat that CUPS's generated PPD offers no
-600 dpi tier and defaults to 300. See the README, *Two ways to print*.
+600 dpi tier and defaults to 300. That cap is CUPS's, not the printer's: a
+600 dpi URF submitted directly over IPP is accepted and printed. See the
+README, *Two ways to print*.
 
 Transport: raw TCP port 9100 (JetDirect), USB bulk, or IPP with the job body
 sent as `application/octet-stream`. The printer does not acknowledge raw jobs;

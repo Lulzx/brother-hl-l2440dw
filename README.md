@@ -64,24 +64,50 @@ Confirmed by running the filter chain by hand: `rastertopwg` logs
 
 Same PDF page, same physical size, both printed on the hardware:
 
-| | driverless CUPS | `brprint` (HBP) |
-|---|---|---|
-| Setup | one `lpadmin` line | `make` |
-| Raster sent | 2550x3300 = 8.5x11in **@300dpi** | 5100x6600 = 8.5x11in **@600dpi** |
-| Host intermediate | 7.8 MB, 8-bit gray | 4.2 MB, 1-bit PBM |
-| On the wire | 409,611 B (PWG) | 462,783 B (HBP) |
-| Duplex back side | `normal`, no rotation | 180-degree pre-rotation |
+| | driverless, default | driverless, patched PPD | `brprint` (HBP) |
+|---|---|---|---|
+| Setup | one `lpadmin` line | `lpadmin` + hand-edited PPD | `make` |
+| Raster sent | 2550x3300 **@300dpi** | 5100x6600 **@600dpi** | 5100x6600 **@600dpi** |
+| Host intermediate | 7.8 MB, 8-bit gray | 31.4 MB, 8-bit gray | 4.2 MB, 1-bit PBM |
+| On the wire | 409,611 B (PWG) | 906,267 B (URF) | 462,783 B (HBP) |
+| Duplex back side | `normal`, no rotation | `normal`, no rotation | 180-degree pre-rotation |
 
-Near-identical bytes on the wire, but the HBP stream carries 4x the pixels for
-them: mode-1030 delta coding on 1-bit data fits text far better than PWG on
-8-bit gray.
+All three printed on the hardware. At equal resolution the HBP stream is about
+half the bytes of URF (462,783 vs 906,267) off a host buffer 7x smaller, because
+mode-1030 delta coding on 1-bit data fits text far better than URF on 8-bit gray.
 
-So: use the CUPS queue for everyday printing. Use this repo when you want the
-engine's native 600 dpi, exact control of halftoning and placement, or a print
-path with no spooler, no PPD and no CUPS at all -- one C99 binary and a socket.
-Whether the driverless path can be pushed to 600 dpi by overriding
-`printer-resolution` (which the printer does list in
-`job-creation-attributes-supported`) is untested.
+### 600 dpi over the driverless path -- it works
+
+The 300 dpi cap is CUPS's PPD generator, not the printer. Submitting a 600 dpi
+URF directly with `ipptool` is accepted and printed, and the printer echoes
+`printer-resolution = 600dpi` back rather than coercing it:
+
+```sh
+ipptool -tv ipp://192.168.1.17/ipp/print print600.test   # -> successful-ok
+```
+
+To get there through a normal queue, add a 600 dpi tier to the generated PPD
+(`*DefaultResolution: 600dpi`, and point `cupsPrintQuality High` at
+`HWResolution[600 600]`), reinstall it and print with `-o print-quality=5`:
+
+```sh
+lpadmin -p brother -P patched.ppd
+lp -d brother -o print-quality=5 doc.pdf
+```
+
+Verified end to end -- the impression counter advanced and the raster left the
+host at 5100x6600.
+
+One caveat: `lpadmin -P` prints `Printer drivers are deprecated and will stop
+working in a future version of CUPS`. The clean 600 dpi route therefore depends
+on a mechanism Apple is removing, and the driverless-with-generated-PPD path it
+leaves behind is the one that caps at 300.
+
+So: use the CUPS queue for everyday printing. Use this repo when you want a
+print path with no spooler, no PPD and no CUPS at all -- one C99 binary and a
+socket -- or when you want to own the halftoning and pixel placement yourself
+rather than hand 8-bit gray to someone else's screening. 600 dpi alone is no
+longer a reason to prefer it.
 
 ## Print a PDF
 
