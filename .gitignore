@@ -11,3 +11,8 @@ cal-out/
 cpp/brhbp_tool
 cpp/brhbp_bench
 cpp/brhbp_pdf
+cpp/cancel_test
+cpp/ippcancel_tool
+cpp/status_tool
+cpp/snmp_encode_test
+cpp/android/libbrhbp.dylib

@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <algorithm>
 #include <vector>
 
 namespace {
@@ -75,7 +76,7 @@ brhbp::Paper ParsePaper(const char* s) {
 int main(int argc, char** argv) {
   brhbp::JobSettings js;
   const char* path = nullptr;
-  bool threshold_only = false, quiet = false, discard = false;
+  bool threshold_only = false, quiet = false, discard = false, diffuse = false;
   for (int i = 1; i < argc; ++i) {
     const char* a = argv[i];
     if (!std::strcmp(a, "-p") && i + 1 < argc) js.paper = ParsePaper(argv[++i]);
@@ -85,6 +86,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(a, "-d")) js.duplex = brhbp::Duplex::kLongEdge;
     else if (!std::strcmp(a, "-e")) js.toner_save = true;
     else if (!std::strcmp(a, "-t")) threshold_only = true;
+    else if (!std::strcmp(a, "-E")) diffuse = true;
     else if (!std::strcmp(a, "-q")) quiet = true;
     else if (!std::strcmp(a, "-n")) discard = true;   // benchmark: encode, drop
     else if (a[0] != '-') path = a;
@@ -94,6 +96,7 @@ int main(int argc, char** argv) {
     std::fprintf(stderr,
       "usage: brhbp_pdf [-p PAPER] [-r DPI] [-c N] [-d] [-e] [-t] [-n] doc.pdf > job.prn\n"
       "  -t  plain threshold instead of ordered dither\n"
+      "  -E  Floyd-Steinberg error diffusion (better photos, see note)\n"
       "  -n  encode but discard output (benchmark)\n");
     return 2;
   }
@@ -111,6 +114,13 @@ int main(int argc, char** argv) {
 
   const int kBand = 64;
   std::vector<uint8_t> row(g.stride);
+  // Error diffusion carries residue into the row below, so it must cross band
+  // boundaries. Keeping one row of error here -- rather than inside the band
+  // loop -- is what lets it stream: bands still go out one at a time, they
+  // just have to go out *in order*. That rules out encoding bands in parallel,
+  // which ordered dither would allow. Deliberate trade, hence opt-in.
+  std::vector<int32_t> err_cur, err_next;
+  if (diffuse) { err_cur.assign(g.width_px + 2, 0); err_next.assign(g.width_px + 2, 0); }
   const long rss_start = PeakRssKB();
 
   fz_document* doc = nullptr;
@@ -133,6 +143,8 @@ int main(int argc, char** argv) {
                                   -bounds.y0 * scale - g.origin_y));
 
     if (!enc.BeginPage()) { std::fprintf(stderr, "sink error\n"); return 1; }
+    if (diffuse) { std::fill(err_cur.begin(), err_cur.end(), 0);
+                   std::fill(err_next.begin(), err_next.end(), 0); }
 
     for (int y0 = 0; y0 < g.rows; y0 += kBand) {
       const int y1 = (y0 + kBand < g.rows) ? y0 + kBand : g.rows;
@@ -150,7 +162,20 @@ int main(int argc, char** argv) {
       for (int y = y0; y < y1; ++y) {
         std::memset(row.data(), 0, g.stride);
         const uint8_t* src = s + static_cast<size_t>(y - y0) * st;
-        if (threshold_only) {
+        if (diffuse) {
+          err_cur.swap(err_next);
+          std::fill(err_next.begin(), err_next.end(), 0);
+          for (int x = 0; x < g.width_px; ++x) {
+            const int old = src[x] + err_cur[x + 1];
+            const int nv  = old < 128 ? 0 : 255;
+            if (nv == 0) row[x >> 3] |= 0x80 >> (x & 7);
+            const int e = old - nv;
+            err_cur [x + 2] += e * 7 / 16;
+            err_next[x    ] += e * 3 / 16;
+            err_next[x + 1] += e * 5 / 16;
+            err_next[x + 2] += e * 1 / 16;
+          }
+        } else if (threshold_only) {
           for (int x = 0; x < g.width_px; ++x)
             if (src[x] < 128) row[x >> 3] |= 0x80 >> (x & 7);
         } else {

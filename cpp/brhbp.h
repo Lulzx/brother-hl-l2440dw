@@ -19,6 +19,7 @@
 #ifndef BRHBP_H_
 #define BRHBP_H_
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -41,6 +42,7 @@ enum class Status {
   kSinkError,        // Sink::Write returned false
   kBadArgument,      // unsupported dpi/paper, null row, wrong call order
   kTooManyRows,      // WriteRow called more than PageGeometry::rows times
+  kCancelled,        // RequestCancel() was called; the job was abandoned
 };
 
 // ---------------------------------------------------------------------------
@@ -112,6 +114,26 @@ class JobEncoder {
   bool EndPage();                  // flush partial band, terminator, form feed
   bool End();                      // EOJ + UEL
 
+  // --- cancellation ---------------------------------------------------------
+  //
+  // There is no back-channel on port 9100 and no PJL cancel command, so a job
+  // in flight cannot be recalled -- but it can be abandoned. A bare UEL ends
+  // the current language mid-stream and returns the device to PJL, discarding
+  // the partially received page without ejecting it. Pages already terminated
+  // by a form feed have been committed and will still print; sheets already
+  // moving obviously cannot be recalled.
+  //
+  // RequestCancel() is safe to call from any thread and only sets a flag.
+  // WriteRow() then fails with kCancelled, and the *writing* thread calls
+  // Abort() to emit the escape. Nothing touches the Sink except the writer,
+  // which is what keeps this safe without locking the sink.
+  void RequestCancel() { cancel_.store(true, std::memory_order_relaxed); }
+  bool cancel_requested() const { return cancel_.load(std::memory_order_relaxed); }
+
+  // Emit UEL + EOJ + UEL. Call on the writing thread after WriteRow() or
+  // BeginPage() has failed with kCancelled. Idempotent.
+  bool Abort();
+
   // Rows still expected on the current page.  A caller that runs out of
   // content early can just call EndPage(); the engine leaves the rest white.
   int rows_remaining() const { return geom_.rows - row_index_; }
@@ -152,6 +174,8 @@ class JobEncoder {
   int      row_index_ = 0;
   bool     raster_open_ = false;
   bool     page_header_done_ = false;
+  bool     aborted_ = false;
+  std::atomic<bool> cancel_{false};
   bool     page_open_ = false;
 };
 

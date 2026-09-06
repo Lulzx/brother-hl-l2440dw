@@ -5,8 +5,9 @@ interface, `brhbp.cc` the implementation, `brhbp_tool` a CLI that mirrors
 `brpdf` so the two can be diffed, and `brhbp_bench` an in-process benchmark.
 
     make -C cpp        # build
-    make -C cpp test   # 11 byte-for-byte cases against brpdf
+    make -C cpp test   # 18 checks: 11 conformance, 3 cancel, 4 SNMP encoding
     make -C cpp bench
+    make -C cpp jni    # Android shared library (needs a JDK)
 
 `brhbp_pdf` is the end-to-end path: PDF in, job out, no page bitmap anywhere.
 MuPDF renders one 64-row band straight into a band-sized pixmap, the band is
@@ -96,3 +97,63 @@ and the caller owns the screening. Worth knowing that the choice interacts with
 threading -- error diffusion carries state along the row and into the next one,
 so it is serial down the page, while ordered or clustered-dot dithering is
 stateless per pixel and parallelises with the bands.
+
+
+## Cancellation
+
+There is no back-channel on port 9100 and no PJL cancel command, so a job can
+only be abandoned, never recalled. Two layers, and an app needs both before it
+sends its first byte.
+
+**In-band** (`JobEncoder`). `RequestCancel()` is safe from any thread and only
+raises a flag; the *writing* thread's next call fails with `kCancelled` and
+that thread calls `Abort()`. Only the writer touches the sink, so no locking.
+
+`Abort()` is not just a UEL, and this is the part worth knowing. Bands live
+inside one open `ESC * b 1030 m` escape which the parser keeps reading as
+`<digits><letter>` pairs until a letter arrives in upper case. A UEL sent into
+that state is swallowed as parameters -- `-12345` matches the number field and
+`X` looks like the terminator -- so everything after it is parsed as PCL. The
+simulator reports exactly that: three bogus `ESC*b` commands and 30 stray
+bytes. `Abort()` therefore closes the raster sequence with `1030M` first, with
+**no form feed**, so the page in flight is abandoned rather than ejected, and
+only then sends UEL and `@PJL EOJ`.
+
+`cancel_check.sh` judges this with the printer model rather than by assertion:
+
+    control: three pages, no cancel                      3 pages, 0 warnings
+    cancel mid page 2 + Abort(): page 2 abandoned        1 page,  0 warnings
+    naive stop, no Abort(): leaves an open escape        1 page,  1 warning
+
+**Out-of-band** (`ippcancel.h`). `Abort()` cannot touch what the device has
+already committed. IPP on port 631 can: `CancelCurrentJob()`, `CancelJob(id)`
+and `PurgeJobs()`, dependency-free -- IPP is an HTTP POST with a binary body.
+Encoding was checked against a local `ippeveprinter`, which returns the same
+IPP-level response to our requests as to `ipptool`'s. The operations themselves
+still need the real printer; `ippeveprinter` does not implement them.
+
+## Status
+
+`status.h` polls three OIDs over SNMP, which is the only channel that reports
+progress and, unlike a second 9100 connection, works *during* a job:
+
+    hrPrinterStatus              idle / printing / warmup
+    hrPrinterDetectedErrorState  no paper, jam, door open, low toner, ...
+    prtMarkerLifeCount           increments once per impression
+
+The request encoder is verified byte-identical to net-snmp's for all four OIDs,
+with no printer involved: `snmpget` is aimed at a local UDP socket that
+captures the packet, its request-id is read back out, and our encoder is asked
+for the same one.
+
+## Halftoning
+
+    default   ordered Bayer 8x8   stateless, bands independent
+    -t        plain threshold     fastest, right for already-halftoned input
+    -E        Floyd-Steinberg     best tone, see below
+
+Error diffusion carries residue into the row below, so it has to cross band
+boundaries. Keeping one error row outside the band loop lets it stream -- bands
+still go out one at a time, they just have to go out *in order*. That rules out
+encoding bands in parallel, which ordered dither would allow. It is opt-in for
+that reason, not because of quality.

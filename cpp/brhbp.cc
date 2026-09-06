@@ -191,6 +191,7 @@ bool JobEncoder::Begin() {
 }
 
 bool JobEncoder::BeginPage() {
+  if (cancel_requested()) { status_ = Status::kCancelled; return false; }
   if (status_ != Status::kOk || page_open_) return false;
   // brpdf/brlaser emit the settings block once per job, not per page, because
   // the settings do not change within a job. Matching that is what keeps the
@@ -301,6 +302,7 @@ bool JobEncoder::FlushBand() {
 }
 
 bool JobEncoder::WriteRow(const uint8_t* row) {
+  if (cancel_requested()) { status_ = Status::kCancelled; return false; }
   if (status_ != Status::kOk || !page_open_) return false;
   if (row_index_ >= geom_.rows) { status_ = Status::kTooManyRows; return false; }
 
@@ -338,6 +340,35 @@ bool JobEncoder::EndPage() {
   if (!EmitF("1030M\f")) return false;
   page_open_ = false;
   return true;
+}
+
+bool JobEncoder::Abort() {
+  if (aborted_) return true;
+  aborted_ = true;
+  // Order matters, and a bare UEL is not enough.
+  //
+  // Bands live inside one open `ESC * b 1030 m` escape sequence, which the
+  // parser continues to read as <digits><letter> pairs until a letter arrives
+  // in upper case. A UEL sent into that state is swallowed as parameters --
+  // `-12345` matches the number field and `X` looks like the terminator -- so
+  // the escape closes on the UEL's own bytes and everything after it is parsed
+  // as PCL. Verified against brsim.py, which reports it as three bogus
+  // `ESC*b` commands followed by stray bytes.
+  //
+  // So close the raster sequence first with the upper-case `1030M` terminator
+  // and, critically, *no* form feed: the partially received page must not be
+  // ejected. Only then is a UEL recognised.
+  //
+  // Written straight to the sink rather than through Emit(), which
+  // short-circuits on a non-kOk status -- and by now the status is kCancelled.
+  char buf[160];
+  int n = std::snprintf(buf, sizeof buf,
+                        "%s\033%%-12345X@PJL\n@PJL EOJ NAME=\"%s\"\n\033%%-12345X\n",
+                        raster_open_ ? "1030M" : "", settings_.job_name);
+  if (n < 0 || static_cast<size_t>(n) >= sizeof buf) return false;
+  page_open_ = false;
+  raster_open_ = false;
+  return sink_->Write(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(n));
 }
 
 bool JobEncoder::End() {
