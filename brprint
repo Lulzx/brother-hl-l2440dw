@@ -1,0 +1,78 @@
+#!/bin/sh
+# brprint -- PDF in, paper out.  Rasterise, encode with ./brpdf, push to the
+# printer's raw port.  No Brother software, no CUPS queue, no driver.
+#
+#   ./brprint doc.pdf                 # print to $BRPRINTER
+#   ./brprint -d -p A4 doc.pdf        # duplex A4
+#   ./brprint --sim doc.pdf           # send to a local brsim.py listener instead
+#   ./brprint -o job.prn doc.pdf      # write the job file, send nothing
+#   ./brprint --status                # ask the printer who and how it is
+#
+# Any option brpdf understands (-p -r -c -d -R -e -t -m -j) is passed through.
+set -eu
+
+# The HL-L2440DW found on this LAN.  Override with BRPRINTER / BRPORT in the
+# environment, e.g.  BRPRINTER=192.168.1.42 ./brprint doc.pdf
+PRINTER=${BRPRINTER:-192.168.1.17}
+PORT=${BRPORT:-9100}
+
+cd "$(dirname "$0")"
+
+DPI=600 OUT= PDF= SIM=0 STATUS=0
+ENC=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --sim)     SIM=1; PRINTER=127.0.0.1 ;;
+    --status)  STATUS=1 ;;
+    -o)        OUT=$2; shift ;;
+    -r)        DPI=$2; ENC="$ENC -r $2"; shift ;;
+    -p|-c|-t|-m|-j) ENC="$ENC $1 $2"; shift ;;
+    -d|-R|-e|-x)    ENC="$ENC $1" ;;
+    -h|--help) sed -n '2,12p' "$0" | cut -c3-; exit 0 ;;
+    -*)        echo "brprint: unknown option $1" >&2; exit 2 ;;
+    *)         PDF=$1 ;;
+  esac
+  shift
+done
+
+if [ "$STATUS" = 1 ]; then
+  echo "printer: $PRINTER:$PORT"
+  if [ "$SIM" = 1 ]; then
+    # brsim.py implements the PJL back-channel; the real device does not.
+    printf '\033%%-12345X@PJL INFO ID\r\n@PJL INFO STATUS\r\n\033%%-12345X' \
+      | nc -w 3 "$PRINTER" "$PORT" | tr -d '\r\f'
+  else
+    ipptool -tv "ipp://$PRINTER/ipp/print" get-printer-attributes.test \
+      | grep -E 'printer-(make-and-model|name|state|state-reasons|is-accepting-jobs)' \
+      | sed 's/^ *//'
+  fi
+  exit 0
+fi
+
+[ -n "$PDF" ] || { echo "brprint: no PDF given (see --help)" >&2; exit 2; }
+[ -f "$PDF" ] || { echo "brprint: no such file: $PDF" >&2; exit 1; }
+[ -x ./brpdf ] || make brpdf >/dev/null
+
+# Rasterise to 1-bit PBM at the encoder's resolution, with whatever is installed.
+raster() {
+  if   command -v mutool   >/dev/null 2>&1; then mutool draw -F pbm -r "$DPI" -o - "$PDF" 2>/dev/null
+  elif command -v pdftoppm >/dev/null 2>&1; then pdftoppm -mono -r "$DPI" "$PDF"
+  elif command -v gs       >/dev/null 2>&1; then gs -q -dNOPAUSE -dBATCH -sDEVICE=pbmraw -r"$DPI" -sOutputFile=- "$PDF"
+  else echo "brprint: need one of mutool, pdftoppm, ghostscript" >&2; exit 1
+  fi
+}
+
+JOB=${OUT:-${TMPDIR:-/tmp}/brprint.$$.prn}
+[ -n "$OUT" ] || trap 'rm -f "$JOB"' EXIT INT TERM
+# shellcheck disable=SC2086
+raster | ./brpdf -j "$(basename "$PDF")" $ENC > "$JOB"
+echo "encoded $(wc -c < "$JOB" | tr -d ' ') bytes"
+
+if [ -n "$OUT" ]; then
+  echo "wrote $OUT (not sent)"
+  exit 0
+fi
+
+[ "$SIM" = 1 ] || printf 'sending to %s:%s -- ' "$PRINTER" "$PORT"
+nc -w 20 "$PRINTER" "$PORT" < "$JOB"
+echo "sent"

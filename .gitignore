@@ -7,3 +7,4 @@ spool/
 *.prn
 *.pbm
 .DS_Store
+cal-out/
