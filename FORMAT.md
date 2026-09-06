@@ -178,6 +178,34 @@ the left edge and 16 pt from the top (right and bottom borders are 8 pt). At
 600 dpi that is 66 px in and 133 px down. Rows may be any length; trailing
 white is simply omitted. Anything wider than the paper is clipped by the engine.
 
+### Do not send compressed or otherwise arbitrary bytes on 9100
+
+The engine does not sniff, frame or validate what arrives on this port. Once
+`ENTER LANGUAGE = PCL` has been issued it feeds every following byte through
+the PCL-syntax parser, and **`\f` (0x0c) ejects a sheet** wherever it appears.
+Band lengths are ASCII decimal read inline, so there is no length field the
+parser can use to skip over a region it does not understand: it cannot resync,
+it just keeps interpreting.
+
+Any high-entropy payload therefore contains roughly one form feed per 256
+bytes and turns into that many pages. Verified the expensive way on an
+HL-L2440DW: a 54,589-byte gzip stream, wrapped in `@PJL JOB`/`@PJL EOJ` and
+sent to 9100 to see whether the firmware would accept compression, contained
+250 `0x0c` bytes and began printing 250 pages. The impression counter advanced
+three sheets within the first second. There is no software stop -- the device
+answers no back-channel (section 6b), and it was only halted by pulling the
+power.
+
+The vendor Android app *does* gzip its payload, but it can: it sends PWG
+Raster as a single opaque blob that the firmware hands to a raster decoder,
+never to the PCL parser. Mode-1030 has no such envelope. The two are not
+interchangeable, and there is no PJL variable to enable compression either --
+`INQUIRE` returns `"?"` for `COMPRESS`, `COMPRESSION`, `GZIP`, `DATACOMPRESS`,
+`RASTERCOMPRESS`, `DEFLATE` and `ENCODING`, the same as an invented name.
+
+If you need to experiment on this port, do it against `brsim.py` first. It
+decodes the same stream and costs no paper.
+
 ## 4. Band structure
 
 ```
