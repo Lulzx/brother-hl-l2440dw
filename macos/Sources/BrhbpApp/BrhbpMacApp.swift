@@ -7,7 +7,13 @@ struct BrhbpMacApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
-                .task { model.startPolling() }
+                .task {
+                    model.startPolling()
+                    // Test hook: open a document without touching the UI.
+                    if let p = ProcessInfo.processInfo.environment["BRHBP_OPEN"] {
+                        model.load(url: URL(fileURLWithPath: p))
+                    }
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

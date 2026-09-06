@@ -27,6 +27,7 @@ var duplex = false, tonerSave = false, statusOnly = false
 var halftone = Halftone.ordered
 var maxPages: Int32 = 0
 var cancelAfter: Double = 0
+var previewCount = 0
 
 var i = path.isEmpty ? 1 : 2
 while i < args.count {
@@ -39,6 +40,7 @@ while i < args.count {
     case "--duplex":     duplex = true
     case "--toner-save": tonerSave = true
     case "--status":     statusOnly = true
+    case "--previews":   i += 1; previewCount = Int(args[i]) ?? 0
     case "--cancel-after": i += 1; cancelAfter = Double(args[i]) ?? 0
     case "--halftone":
         i += 1
@@ -57,6 +59,28 @@ if !statusOnly && path.isEmpty {
 // keeps it stateless rather than sharing a DateFormatter.
 @Sendable func stamp() -> String {
     Date.now.formatted(.dateTime.hour().minute().second().secondFraction(.fractional(2)))
+}
+
+// Exercises the same PreviewRenderer actor the UI drives, so the async path
+// can be checked without a window.
+if previewCount > 0 {
+    let r = PreviewRenderer()
+    let n = await r.open(path: path)
+    print("pages: \(n)")
+    guard n > 0 else { exit(1) }
+    let t0 = Date.now
+    var ok = 0
+    await withTaskGroup(of: PreviewBitmap?.self) { group in
+        for p in 0..<min(n, previewCount) {
+            group.addTask { await r.render(page: p) }
+        }
+        for await bmp in group where bmp != nil { ok += 1 }
+    }
+    let ms = Date.now.timeIntervalSince(t0) * 1000
+    print("rendered \(ok)/\(min(n, previewCount)) previews in \(Int(ms)) ms "
+          + "(\(Int(ms) / max(ok, 1)) ms each)")
+    await r.close()
+    exit(ok == min(n, previewCount) ? 0 : 1)
 }
 
 if statusOnly {

@@ -33,7 +33,8 @@ final class PrintModel {
     var cancelling = false
 
     private var engine: PrintEngine?
-    private var doc: OpaquePointer?
+    @ObservationIgnored private let renderer = PreviewRenderer()
+    private var inFlight: Set<Int> = []
 
     /// `deinit` on a `@MainActor` type cannot touch isolated state, and
     /// `@Observable` will not accept `nonisolated` on a stored var. A box
@@ -50,45 +51,52 @@ final class PrintModel {
     // MARK: - Document
 
     func load(url: URL) {
-        closeDoc()
         let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-        guard let d = brhbp_doc_open(url.path(percentEncoded: false)) else {
-            statusLine = "Could not open that file."
-            return
-        }
-        doc = d
-        documentURL = url
-        pageCount = Int(brhbp_doc_pages(d))
+        let path = url.path(percentEncoded: false)
         previews = [:]
+        inFlight = []
         selectedPage = 0
-        statusLine = "\(pageCount) page\(pageCount == 1 ? "" : "s") ready."
-        renderPreview(page: 0)
+        documentURL = url
+        statusLine = "Opening\u{2026}"
+
+        Task { [renderer] in
+            let n = await renderer.open(path: path)
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            await MainActor.run {
+                self.pageCount = n
+                self.statusLine = n == 0
+                    ? "Could not open that file."
+                    : "\(n) page\(n == 1 ? "" : "s") ready."
+            }
+        }
     }
 
-    /// Previews come from the same renderer the print path uses, so what is on
-    /// screen is what the encoder will see -- just at screen scale. At 110 dpi
-    /// a page costs about 13 ms, which is why this is not cached aggressively.
+    /// Previews come from the same renderer the print path uses, at 110 dpi
+    /// instead of 600, so what is on screen is what the encoder will see.
+    ///
+    /// Rendering happens on the `PreviewRenderer` actor, never on the main
+    /// thread: a page costs 3-50 ms and a screenful is a dozen pages, which is
+    /// long enough to stall the window if done inline.
     func renderPreview(page: Int) {
-        guard let d = doc, page >= 0, page < pageCount, previews[page] == nil else { return }
-        var w: Int32 = 0, h: Int32 = 0
-        var gray: UnsafeMutablePointer<UInt8>?
-        guard brhbp_doc_preview(d, Int32(page), 110.0 / 72.0, &w, &h, &gray), let g = gray
-        else { return }
-        defer { brhbp_free(g) }
-        let count = Int(w) * Int(h)
-        guard count > 0, let provider = CGDataProvider(data: Data(bytes: g, count: count) as CFData)
-        else { return }
-        previews[page] = CGImage(
-            width: Int(w), height: Int(h), bitsPerComponent: 8, bitsPerPixel: 8,
-            bytesPerRow: Int(w), space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGBitmapInfo(rawValue: 0), provider: provider,
-            decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        guard previews[page] == nil, !inFlight.contains(page), page < pageCount else { return }
+        inFlight.insert(page)
+        Task { [renderer] in
+            let bmp = await renderer.render(page: page)
+            await MainActor.run {
+                self.inFlight.remove(page)
+                guard let bmp, let image = Self.makeImage(bmp) else { return }
+                self.previews[page] = image
+            }
+        }
     }
 
-    private func closeDoc() {
-        if let d = doc { brhbp_doc_close(d); doc = nil }
+    private static func makeImage(_ b: PreviewBitmap) -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(b.gray) as CFData) else { return nil }
+        return CGImage(width: b.width, height: b.height,
+                       bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: b.width,
+                       space: CGColorSpaceCreateDeviceGray(),
+                       bitmapInfo: CGBitmapInfo(rawValue: 0), provider: provider,
+                       decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
     // MARK: - Status

@@ -35,9 +35,33 @@ the status pill and the device-cancel button, which refract together and
 animate as one. The toolbar uses `.glassProminent` for Print and `.glass` for
 Stop. Nothing else is glassed. Applying it everywhere is the anti-pattern.
 
-**Previews come from the print renderer.** The same MuPDF band renderer, run at
-110 dpi instead of 600. What is on screen is what the encoder will see. A page
-costs about 13 ms because rendering a text PDF is parse-bound, not pixel-bound.
+**Previews come from the print renderer.** The same MuPDF renderer at 110 dpi
+instead of 600, so what is on screen is what the encoder will see. They are
+produced on a `PreviewRenderer` actor that owns its *own* document handle:
+MuPDF's `fz_context` is not thread-safe, so previews are serialised among
+themselves and cannot touch a job in flight. 21 pages of a paper render in
+165 ms, about 7 ms each.
+
+### Two bugs worth recording
+
+**Previews rendered but never appeared.** Every thumbnail past the first sat on
+a spinner forever. The renderer was fine -- all 21 pages produced correct
+bitmaps in single-digit milliseconds. The fault was observation scope:
+
+    ForEach(0..<model.pageCount, id: \.self) { i in
+        PageThumb(index: i, image: model.previews[i])   // wrong
+
+`ForEach`'s content closure runs *outside* the enclosing view's observation
+scope, so reading `model.previews[i]` there registers no dependency and later
+mutations invalidate nothing. Page 1 appeared only because its preview existed
+before the grid was first built. Passing the model down and reading
+`model.previews[index]` inside `PageThumb.body` puts the read back under
+tracking. Nothing about this is visible in a failing build or a warning -- it
+looks exactly like slow loading.
+
+**Rendering blocked the window.** It also ran inline on the main actor, so a
+screenful of thumbnails stalled the UI. It is now `async` on the actor, with an
+in-flight set so a thumbnail that scrolls in and out is not rendered twice.
 
 ## Cancellation, which is the point
 

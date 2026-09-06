@@ -148,8 +148,13 @@ private struct PreviewPane: View {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 20)], spacing: 20) {
                     ForEach(0..<model.pageCount, id: \.self) { i in
-                        PageThumb(index: i, image: model.previews[i],
-                                  isCurrent: model.isPrinting && model.currentPage == i + 1)
+                        // The model is passed down rather than the image.
+                        // ForEach's content closure runs outside this view's
+                        // observation scope, so reading model.previews[i] here
+                        // would never invalidate anything: the thumbnails were
+                        // being rendered and silently never shown. Reading it
+                        // inside PageThumb.body puts it back under tracking.
+                        PageThumb(model: model, index: i)
                             .onAppear { model.renderPreview(page: i) }
                     }
                 }
@@ -162,11 +167,16 @@ private struct PreviewPane: View {
 }
 
 private struct PageThumb: View {
+    let model: PrintModel
     let index: Int
-    let image: CGImage?
-    let isCurrent: Bool
 
     var body: some View {
+        let image = model.previews[index]
+        let isCurrent = model.isPrinting && model.currentPage == index + 1
+        return content(image: image, isCurrent: isCurrent)
+    }
+
+    private func content(image: CGImage?, isCurrent: Bool) -> some View {
         VStack(spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(.white)
