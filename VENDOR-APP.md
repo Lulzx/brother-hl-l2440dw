@@ -93,6 +93,68 @@ that most needs throughput is the one that disables the concurrent path.
 of them. The heavy per-page image work is in managed Kotlin on the JVM, not in
 native code. PDFium itself is fast; everything wrapped around it is not.
 
+## Resolution modes
+
+`print/d.java` carries Brother's byte-code table for resolution. It is a pair,
+not a scalar: `p085o1/e.java` stores `dpiX` and `dpiY` as separate
+`@SerializedName` fields.
+
+| Code | dpiX x dpiY | Code | dpiX x dpiY |
+|---|---|---|---|
+| 1 | 300 x 300 | 10 | 300 x 1200 |
+| 2 | 600 x 300 | 11 | 300 x 2400 |
+| 3 | 600 x 600 | 12 | 300 x 6000 |
+| **4** | **600 x 2400** | 13 | 600 x 1200 |
+| 5 | 1200 x 1200 | 14 | 600 x 6000 |
+| 6 | 1200 x 2400 | 15 | 1200 x 300 |
+| 7 | 1200 x 600 | 48 | 1200 x 6000 |
+| 9 | 300 x 600 | | *(8 absent)* |
+
+Code 4 is **600 x 2400**, which is exactly the `prtMarkerAddressability` this
+printer reports over SNMP. That is independent confirmation from Brother's own
+code that the asymmetric engine is real and a first-class mode, not an SNMP
+reporting quirk -- and it matches the firmware exposing `RESOLUTIONX` and
+`RESOLUTIONY` as independent settables. Neither brlaser nor brpdf ever sets
+them. See FORMAT.md section 7.
+
+One oddity worth verifying against smali before believing it: `e.equals()`
+decompiles as `this.dpiX == other.dpiY && this.dpiY == other.dpiY`, comparing X
+against the other object's Y. Harmless for square modes, wrong for every
+asymmetric one. It may be a jadx artifact.
+
+## What the app gets right
+
+The findings above are one-sided by construction -- they are the answer to "why
+is this slow". In fairness:
+
+* **PDFium for rendering.** The engine Chrome uses: native, fast, well
+  maintained. The correct choice, and the right one to keep.
+* **The pipeline is well built.** Five typed stages with cancellation,
+  progress callbacks, interruption handling and preview generation wired in as
+  a stage rather than bolted on.
+* **Memory was considered, not ignored.** `PipelineControllerParallelImpl`
+  exists and the sequential fallback is a deliberate guard with a real budget.
+  `OutOfMemoryError` handling at six sites is defensive engineering.
+* **PWG Raster is a standard**, so one code path serves every model instead of
+  a proprietary encoder per engine family.
+
+And that last point is the actual explanation. `SupportModelFixed.json` lists
+**314 models** across `LASER`, `INKJET`, `LED` and `THERMAL`, with a further
+872 explicitly unsupported. ARGB_8888 is the one buffer format that serves
+colour inkjet photographs, label printers and mono lasers alike; the disk
+round-trips give cancellation points and preview reuse across five stages.
+
+Those are reasonable choices for a 314-model general-purpose app. Anything in
+this repo is faster because it targets one raster format on one engine family
+and refuses to be general -- it deletes requirements the vendor cannot delete.
+That is a narrower problem, not better engineering, and it is worth saying so
+plainly rather than claiming a 30x speedup without naming what was given up.
+
+Two things remain defects rather than trade-offs. PNG at quality 100 for
+*intermediate* files nobody ever looks at is lossless recompression of data
+about to be discarded. And the parallel path switching off at exactly 1200 dpi
+disables concurrency precisely where throughput matters most.
+
 ## The wire format: PWG Raster over port 9100
 
 Resolved statically; no capture was needed, and the earlier guess that this

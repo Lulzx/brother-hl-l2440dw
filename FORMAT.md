@@ -364,6 +364,16 @@ intervention, `hrPrinterDetectedErrorState` clear throughout. So the engine does
 not reject the doubled geometry, and brlaser's assumption is at least not
 catastrophically wrong.
 
+**Corroboration from Brother's own app.** The Android app carries a byte-code
+table mapping resolution codes to `dpiX` x `dpiY` pairs (`print/d.java`), and
+code 4 is **600 x 2400** -- the exact figure this engine reports over SNMP. The
+table also holds 1200x1200, 1200x2400, 600x1200 and 1200x600. So asymmetric
+modes are first-class in Brother's protocol, resolution is a pair rather than a
+scalar, and "1200 dpi" on this family may well be one of the asymmetric codes
+rather than a square grid. That would explain why 1200 mode costs roughly 2.7x
+the data rather than the 4x a true doubling of both axes would give. See
+VENDOR-APP.md.
+
 **What is still open.** Whether the extra data becomes real resolution on paper,
 and whether it does so equally in both axes. `tools/restest.py` generates the
 page that answers this: gratings specified in line pairs per inch (so the same

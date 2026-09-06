@@ -22,6 +22,8 @@ brsim.py       printer model: decodes jobs to PNG, or listens on tcp/9100 like t
 tools/probe.py interrogate the real printer over PJL + SNMP + IPP
 tools/testpage.py  calibration sheet for measuring the engine's true geometry
 FORMAT.md      the wire protocol
+VENDOR-APP.md  how Brother's own Android app does it, and why it is slow
+cpp/           streaming C++ encoder: constant memory, byte-identical to brpdf
 ref/           brlaser's original encoder + harness for byte-for-byte conformance
 test/          sample PDF and the end-to-end test script
 ```
@@ -151,6 +153,37 @@ open spool/job-*/page-001-front-preview.png        # what the sheet would look l
 ```
 
 Or render an existing job file directly: `python3 brsim.py decode job.prn -o out -v`.
+
+## Streaming encoder (cpp/)
+
+`brpdf` buffers a whole page before encoding it. `cpp/` is the same encoder
+restructured to stream: rows go in one at a time and are copied before the call
+returns, so a caller can render, halftone and discard one band at a time. The
+format allows this because bands are self-contained -- a band never references
+the one before it.
+
+```sh
+make cpp                                  # build (needs MuPDF only for brhbp_pdf)
+make cpp-test                             # 11 byte-for-byte cases against brpdf
+./cpp/brhbp_pdf -p A4 -r 600 doc.pdf > job.prn
+```
+
+`brhbp_pdf` renders one 64-row band straight into a band-sized pixmap, halftones
+it, encodes it and drops it. No page bitmap is allocated at any resolution:
+
+| | ms/page | peak RSS |
+|---|---|---|
+| 3-page Letter @300 | 34.5 | 12,144 KB |
+| 3-page Letter @600 | 69.2 | 12,320 KB |
+| 3-page Letter @1200 | 150.7 | 12,688 KB |
+
+MuPDF's own baseline is 9,568 KB of that. Sixteen times the pixels for 4.5%
+more memory, because nothing scales with page area -- only with band width.
+The encoder alone runs 1.10 ms/page at A4/600 with a 64 KB working set.
+
+Correctness is inherited rather than asserted: output is byte-identical to
+`brpdf`, which is byte-identical to brlaser. Every optimisation changes only how
+fast the same answer is found.
 
 ## Verification
 
