@@ -93,11 +93,50 @@ that most needs throughput is the one that disables the concurrent path.
 of them. The heavy per-page image work is in managed Kotlin on the JVM, not in
 native code. PDFium itself is fast; everything wrapped around it is not.
 
-## Not established here
+## The wire format: PWG Raster over port 9100
 
-Where the final on-wire raster is produced. `p107s1/a.java`'s byte transform
-`m(byte[], boolean)` is the identity function and its `f()` returns false, so
-that codec sends page bytes unmodified; the app references port 631 far more
-often than 9100 (292 vs 36 occurrences), so its primary path is likely IPP
-rather than the HBP stream this repo documents. Confirming the exact wire
-format would need a packet capture, not static analysis.
+Resolved statically; no capture was needed, and the earlier guess that this
+was an IPP path was wrong.
+
+**Transport is raw TCP 9100**, not IPP. `print/transfer/b.java` is
+`Port9100TransfererImpl` and constructs `network.b(byName, 9100)`. There is no
+`ipp://` or `ipps://` URI anywhere in the app.
+
+**Payload is PWG Raster**, not Brother's mode-1030. `p107s1/f.java` builds it
+directly:
+
+    this.f17888h = ByteBuffer.allocate(1796).array();     // PWG page header
+    byte[] bytes = "PwgRaster".getBytes(charset);         // PWG magic
+    PwgColorSpace pwgColorSpace = printParameter.l() == PrintColor.COLOR
+                                  ? PwgColorSpace.SRGB : PwgColorSpace.SGRAY;
+
+1796 bytes is the PWG Raster page header size, and the `Pair<Integer,Integer>`
+fields scattered through the constructor are its byte offsets -- `(372,375)`
+width, `(376,379)` height, `(388,391)` bits-per-pixel -- matching the spec.
+Nothing in any codec contains the string `1030` or emits an ESC byte, so the
+mode-1030 line-delta compression this repo documents is not used at all.
+
+**Optional gzip.** `p107s1/g.java` overrides the byte transform with a
+`GZIPOutputStream` kept open across pages; `p107s1/a.java` and `f.java` return
+the identity instead. So the stream is PJL `JOB`/`EOJ` wrapping PWG Raster,
+gzipped on the models that enable it.
+
+### What that costs
+
+The colour space is `SGRAY` (8 bits per pixel) or `SRGB` (24), against the
+1 bit per pixel the engine actually consumes:
+
+| A4 @600 dpi | Raw page |
+|---|---|
+| PWG `SRGB`, colour mode | 104.4 MB |
+| PWG `SGRAY`, mono | 34.8 MB |
+| HBP mode-1030, native | 4.3 MB |
+
+On the wire, for the same real page measured earlier against this hardware:
+HBP 462,783 B versus 8-bit-gray raster 906,267 B -- about half the bytes for
+identical output.
+
+Worth noting the gzip step is *not* the bottleneck: compressing a full page of
+8-bit gray takes ~0.06 s for text on a desktop CPU. The cost is everywhere
+else -- the 139 MB ARGB_8888 bitmaps, the PNG temp files at quality 100, and
+the four disk round-trips.
