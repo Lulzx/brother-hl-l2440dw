@@ -3,10 +3,10 @@ import Foundation
 import Network
 
 /// Paper sizes, in the order the C bridge expects.
-enum Paper: Int32, CaseIterable, Identifiable, Sendable {
+public enum Paper: Int32, CaseIterable, Identifiable, Sendable {
     case a4, letter, legal, a5, a6, b5, b6, executive, c5, dl, monarch
-    var id: Int32 { rawValue }
-    var label: String {
+    public var id: Int32 { rawValue }
+    public var label: String {
         switch self {
         case .a4: "A4";          case .letter: "US Letter"
         case .legal: "US Legal";  case .a5: "A5"
@@ -18,17 +18,17 @@ enum Paper: Int32, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum Halftone: Int32, CaseIterable, Identifiable, Sendable {
+public enum Halftone: Int32, CaseIterable, Identifiable, Sendable {
     case ordered, threshold, diffusion
-    var id: Int32 { rawValue }
-    var label: String {
+    public var id: Int32 { rawValue }
+    public var label: String {
         switch self {
         case .ordered: "Ordered dither"
         case .threshold: "Threshold"
         case .diffusion: "Error diffusion"
         }
     }
-    var detail: String {
+    public var detail: String {
         switch self {
         case .ordered: "Stateless. Good for text and mixed pages."
         case .threshold: "Fastest. Best when the source is already halftoned."
@@ -37,9 +37,9 @@ enum Halftone: Int32, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum DeviceState: Int32, Sendable {
+public enum DeviceState: Int32, Sendable {
     case unknown = 0, other = 1, idle = 3, printing = 4, warmup = 5
-    var label: String {
+    public var label: String {
         switch self {
         case .idle: "Ready";      case .printing: "Printing"
         case .warmup: "Warming up"; case .other: "Busy"
@@ -48,27 +48,35 @@ enum DeviceState: Int32, Sendable {
     }
 }
 
-struct DeviceSnapshot: Sendable, Equatable {
-    var reachable = false
-    var state: DeviceState = .unknown
-    var errors: UInt32 = 0
-    var impressions: Int64 = -1
+public struct DeviceSnapshot: Sendable, Equatable {
+    public init() {}
+    public var reachable = false
+    public var state: DeviceState = .unknown
+    public var errors: UInt32 = 0
+    public var impressions: Int64 = -1
 
     /// Bits of hrPrinterDetectedErrorState that a user can act on.
-    var faults: [String] {
+    public var faults: [String] {
         var out: [String] = []
+        // Already normalised LSB-first by the bridge; SNMP itself numbers
+        // these MSB-first, which is easy to get backwards and silent when you
+        // do -- a real 0x06 (jam + offline) decodes as "no paper, low toner".
         let bits: [(UInt32, String)] = [
-            (1 << 0, "Paper low"), (1 << 1, "Out of paper"),
-            (1 << 2, "Toner low"), (1 << 3, "Out of toner"),
-            (1 << 4, "Cover open"), (1 << 5, "Paper jam"),
-            (1 << 6, "Offline"),   (1 << 7, "Service required"),
+            (1 << 0, "Paper low"),   (1 << 1, "Out of paper"),
+            (1 << 2, "Toner low"),   (1 << 3, "Out of toner"),
+            (1 << 4, "Cover open"),  (1 << 5, "Paper jam"),
+            (1 << 6, "Offline"),     (1 << 7, "Service required"),
+            (1 << 8, "Input tray missing"),  (1 << 9, "Output tray missing"),
+            (1 << 10, "Toner cartridge missing"),
+            (1 << 11, "Output tray nearly full"), (1 << 12, "Output tray full"),
+            (1 << 13, "Input tray empty"), (1 << 14, "Maintenance overdue"),
         ]
         for (bit, name) in bits where errors & bit != 0 { out.append(name) }
         return out
     }
 }
 
-enum PrintProgress: Sendable {
+public enum PrintProgress: Sendable {
     case connecting
     case page(index: Int, of: Int)
     case finished(pages: Int, bytes: Int)
@@ -80,7 +88,7 @@ enum PrintProgress: Sendable {
 /// handle is not thread-safe: everything except `requestCancel` is serialised
 /// here, and cancellation is the one operation the C side makes safe to call
 /// from anywhere.
-actor PrintEngine {
+public actor PrintEngine {
     private var job: OpaquePointer?
     private var fd: Int32 = -1
     private var cancelled = false
@@ -89,13 +97,15 @@ actor PrintEngine {
     /// task then sees its next call fail and calls `abort`.
     nonisolated(unsafe) private var handleForCancel: UnsafeMutableRawPointer?
 
-    nonisolated func requestCancel() {
+    public init() {}
+
+    public nonisolated func requestCancel() {
         if let h = handleForCancel {
             brhbp_request_cancel(OpaquePointer(h))
         }
     }
 
-    func run(
+    public func run(
         documentPath: String,
         host: String,
         port: UInt16,
@@ -105,6 +115,7 @@ actor PrintEngine {
         duplex: Bool,
         tonerSave: Bool,
         halftone: Halftone,
+        maxPages: Int32 = 0,
         onProgress: @Sendable @escaping (PrintProgress) -> Void
     ) async {
         onProgress(.connecting)
@@ -138,9 +149,10 @@ actor PrintEngine {
         guard brhbp_begin(j) else { onProgress(.failed("The printer closed the connection.")); return }
 
         var committed = 0
-        for p in 0..<pages {
+        let limit = maxPages > 0 ? min(pages, Int(maxPages)) : pages
+        for p in 0..<limit {
             guard brhbp_begin_page(j) else { break }
-            onProgress(.page(index: p + 1, of: pages))
+            onProgress(.page(index: p + 1, of: limit))
 
             var y: Int32 = 0
             var pageOK = true
@@ -198,30 +210,30 @@ actor PrintEngine {
 }
 
 /// Status polling and out-of-band cancel. Free functions: they hold no state.
-enum Device {
-    static func poll(host: String, community: String = "public") async -> DeviceSnapshot {
-        await withCheckedContinuation { k in
-            DispatchQueue.global(qos: .utility).async {
-                let s = brhbp_poll_status(host, community, 1500)
-                k.resume(returning: DeviceSnapshot(
-                    reachable: s.ok,
-                    state: DeviceState(rawValue: s.state) ?? .unknown,
-                    errors: s.errors,
-                    impressions: s.life_count))
-            }
-        }
+public enum Device {
+    public static func poll(host: String, community: String = "public") async -> DeviceSnapshot {
+        // The C call blocks on a UDP round trip, so it goes off the current
+        // executor rather than parking a cooperative thread.
+        await Task.detached(priority: .utility) {
+            let s = brhbp_poll_status(host, community, 1500)
+            var snap = DeviceSnapshot()
+            snap.reachable = s.ok
+            snap.state = DeviceState(rawValue: s.state) ?? .unknown
+            snap.errors = s.errors
+            snap.impressions = s.life_count
+            return snap
+        }.value
     }
 
     /// Ask the device to drop what it is holding. `PrintEngine.requestCancel`
     /// only stops what has not been sent; this is the only way to reach a job
     /// the printer has already committed.
-    static func cancelOnDevice(host: String) async -> Bool {
-        await withCheckedContinuation { k in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let a = brhbp_ipp_cancel_current(host, 631, "/ipp/print", NSUserName())
-                let b = brhbp_ipp_purge(host, 631, "/ipp/print", NSUserName())
-                k.resume(returning: a == 0 || b == 0)
-            }
-        }
+    public static func cancelOnDevice(host: String) async -> Bool {
+        let user = NSUserName()
+        return await Task.detached(priority: .userInitiated) {
+            let a = brhbp_ipp_cancel_current(host, 631, "/ipp/print", user)
+            let b = brhbp_ipp_purge(host, 631, "/ipp/print", user)
+            return a == 0 || b == 0
+        }.value
     }
 }

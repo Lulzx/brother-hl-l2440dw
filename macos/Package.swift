@@ -22,10 +22,23 @@ let package = Package(
                 .unsafeFlags(["-L\(mupdf)/lib", "-lmupdf", "-lmupdf-third"]),
             ]
         ),
+        // Shared by the app and the CLI, so both drive the identical path.
+        .target(
+            name: "BrhbpKit",
+            dependencies: ["BrhbpBridge"],
+            path: "Sources/BrhbpKit",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "BrhbpApp",
-            dependencies: ["BrhbpBridge"],
+            dependencies: ["BrhbpKit"],
             path: "Sources/BrhbpApp",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(
+            name: "brhbp-cli",
+            dependencies: ["BrhbpKit"],
+            path: "Sources/brhbp-cli",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

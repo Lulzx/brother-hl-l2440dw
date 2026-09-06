@@ -20,16 +20,31 @@ namespace brhbp {
 
 enum class PrinterState { kUnknown = 0, kOther = 1, kIdle = 3, kPrinting = 4, kWarmup = 5 };
 
-// Bits of hrPrinterDetectedErrorState (RFC 1759), byte 0 unless noted.
+// Bits of hrPrinterDetectedErrorState (RFC 1759).
+//
+// SNMP BITS are numbered MSB-first: bit 0 is 0x80 of the first octet, not
+// 0x01. Getting this backwards is silent -- the value still decodes, just into
+// the wrong faults. It read a real 0x06 (jammed + offline) as
+// "no paper, low toner", which is a plausible enough pair to go unnoticed.
+//
+// The mask below is normalised: byte 0 occupies bits 0-7 of `errors` and
+// byte 1 bits 8-14, each already reversed to LSB-first for easy testing.
 enum ErrorBit : uint16_t {
-  kLowPaper     = 1 << 0,
-  kNoPaper      = 1 << 1,
-  kLowToner     = 1 << 2,
-  kNoToner      = 1 << 3,
-  kDoorOpen     = 1 << 4,
-  kJammed       = 1 << 5,
-  kOffline      = 1 << 6,
-  kServiceReq   = 1 << 7,
+  kLowPaper           = 1 << 0,
+  kNoPaper            = 1 << 1,
+  kLowToner           = 1 << 2,
+  kNoToner            = 1 << 3,
+  kDoorOpen           = 1 << 4,
+  kJammed             = 1 << 5,
+  kOffline            = 1 << 6,
+  kServiceReq         = 1 << 7,
+  kInputTrayMissing   = 1 << 8,
+  kOutputTrayMissing  = 1 << 9,
+  kMarkerSupplyMissing= 1 << 10,
+  kOutputNearFull     = 1 << 11,
+  kOutputFull         = 1 << 12,
+  kInputTrayEmpty     = 1 << 13,
+  kOverduePreventMaint= 1 << 14,
 };
 
 struct DeviceStatus {

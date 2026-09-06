@@ -146,6 +146,15 @@ with no printer involved: `snmpget` is aimed at a local UDP socket that
 captures the packet, its request-id is read back out, and our encoder is asked
 for the same one.
 
+**Error bits are MSB-first**, and this was a real bug rather than a
+hypothetical. SNMP `BITS` put bit 0 in the 0x80 position of the first octet.
+Decoding LSB-first is silent -- the value still parses, into the wrong faults.
+A genuine `0x06` from the device meant `jammed` + `offline` after power was
+pulled mid-print, and read as "no paper, low toner" instead. Plausible enough
+that only the owner saying "there is plenty of paper" caught it. `status.cc`
+now reverses each octet on the way in, so `ErrorBit` stays readable LSB-first
+in the API, and both octets are decoded rather than just the first.
+
 ## Halftoning
 
     default   ordered Bayer 8x8   stateless, bands independent

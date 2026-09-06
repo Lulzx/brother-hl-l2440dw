@@ -295,6 +295,25 @@ Sampling SNMP once a second across a job gives clean transitions:
 |---|---|---|
 | `1.3.6.1.2.1.25.3.5.1.1.1` | `hrPrinterStatus` | `idle` -> `printing` -> `idle` |
 | `1.3.6.1.2.1.25.3.5.1.2.1` | `hrPrinterDetectedErrorState` | `"00 "` throughout (no error) |
+
+**Read the error bits MSB-first.** `hrPrinterDetectedErrorState` is an SNMP
+`BITS` value, where bit 0 is the **0x80** position of the first octet, not
+0x01. Getting it backwards is silent: the value still decodes, just into
+different faults. A real `0x06` read from this device meant `jammed` (bit 5)
+plus `offline` (bit 6) -- power had been pulled mid-print and paper was left in
+the path -- but decoded LSB-first it reads as "no paper, low toner", which is
+plausible enough to believe. Byte 0 is:
+
+    0x80 lowPaper   0x40 noPaper    0x20 lowToner  0x10 noToner
+    0x08 doorOpen   0x04 jammed     0x02 offline   0x01 serviceRequested
+
+Byte 1, when present, continues: `inputTrayMissing`, `outputTrayMissing`,
+`markerSupplyMissing`, `outputNearFull`, `outputFull`, `inputTrayEmpty`,
+`overduePreventMaint`.
+
+Note also that `hrPrinterStatus` and the SNMP agent as a whole can go briefly
+unresponsive while the device settles after clearing a fault -- three seconds
+of retry covers it.
 | `1.3.6.1.2.1.43.10.2.1.4.1.1` | `prtMarkerLifeCount` | increments as each sheet lands |
 
 `hrPrinterStatus` goes to `printing` about 1.2 s after the job is written to the

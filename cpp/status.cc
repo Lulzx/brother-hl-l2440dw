@@ -202,8 +202,13 @@ DeviceStatus PollStatus(const char* host, const char* community, int timeout_ms)
     st.detail = "no reply to hrPrinterStatus";
     return st;
   }
-  if (Query(host, community, "1.3.6.1.2.1.25.3.5.1.2.1", timeout_ms, &tag, &iv, &sv, &sl, &scratch))
-    if (sv && sl >= 1) st.errors = sv[0];
+  if (Query(host, community, "1.3.6.1.2.1.25.3.5.1.2.1", timeout_ms, &tag, &iv, &sv, &sl, &scratch)) {
+    // Reverse each octet: SNMP BITS put bit 0 in the 0x80 position.
+    if (sv && sl >= 1)
+      for (int i = 0; i < 8; ++i) if (sv[0] & (0x80 >> i)) st.errors |= (1u << i);
+    if (sv && sl >= 2)
+      for (int i = 0; i < 7; ++i) if (sv[1] & (0x80 >> i)) st.errors |= (1u << (8 + i));
+  }
   if (Query(host, community, "1.3.6.1.2.1.43.10.2.1.4.1.1", timeout_ms, &tag, &iv, &sv, &sl, &scratch))
     st.life_count = iv;
   return st;
@@ -214,10 +219,17 @@ std::string DescribeErrors(uint16_t m) {
   std::string s;
   auto add = [&](uint16_t bit, const char* n) {
     if (m & bit) { if (!s.empty()) s += ", "; s += n; } };
-  add(kLowPaper, "low paper");  add(kNoPaper, "no paper");
-  add(kLowToner, "low toner");  add(kNoToner, "no toner");
-  add(kDoorOpen, "door open");  add(kJammed, "jammed");
-  add(kOffline, "offline");     add(kServiceReq, "service requested");
+  add(kLowPaper, "paper low");   add(kNoPaper, "out of paper");
+  add(kLowToner, "toner low");   add(kNoToner, "out of toner");
+  add(kDoorOpen, "cover open");  add(kJammed, "paper jam");
+  add(kOffline, "offline");      add(kServiceReq, "service required");
+  add(kInputTrayMissing, "input tray missing");
+  add(kOutputTrayMissing, "output tray missing");
+  add(kMarkerSupplyMissing, "toner cartridge missing");
+  add(kOutputNearFull, "output tray nearly full");
+  add(kOutputFull, "output tray full");
+  add(kInputTrayEmpty, "input tray empty");
+  add(kOverduePreventMaint, "maintenance overdue");
   return s;
 }
 

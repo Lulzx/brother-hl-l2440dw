@@ -9,7 +9,9 @@ Swift 6.3.
 ## Shape
 
     Sources/BrhbpBridge   flat C surface over the C++ engine (symlinks to ../cpp)
-    Sources/BrhbpApp      SwiftUI app: Engine.swift, PrintModel.swift, ContentView.swift
+    Sources/BrhbpKit      PrintEngine actor, Device polling, shared types
+    Sources/BrhbpApp      SwiftUI: PrintModel.swift, ContentView.swift
+    Sources/brhbp-cli     the same engine, without the buttons
 
 The engine sources are **symlinks into `../cpp`**, so there is exactly one copy
 of the encoder in the repo and the conformance suite still governs it.
@@ -60,6 +62,31 @@ Polled over SNMP every three seconds: reachability, `hrPrinterStatus`,
 `hrPrinterDetectedErrorState` decoded into readable faults (out of paper, jam,
 cover open, toner low) and the lifetime impression counter. SNMP works
 concurrently with a print job, which a second connection to port 9100 does not.
+
+## Verified on hardware
+
+`brhbp-cli` exists so the print path can be driven and watched from a terminal.
+It is not a reimplementation -- it links `BrhbpKit`, so it drives the identical
+`PrintEngine` actor, bridge and band renderer the UI does.
+
+    $ brhbp-cli --status --host 192.168.1.17
+    Ready  faults=none  impressions=1916
+
+    $ brhbp-cli ../test/sample.pdf --host 192.168.1.17 --paper A4 --dpi 600 --pages 1
+    2:48:51.91  before: Ready, faults=none, impressions=1915
+    2:48:51.91  connecting
+    2:48:51.92  sending page 1/1
+    2:48:52.17  sent 1 page(s)
+    2:49:06.27  sheet out -> impressions=1916  (Ready)
+    2:49:18.71  after: Ready, impressions=1916 (+1)
+
+**250 ms of host work, then 14.1 s of engine.** That ratio is the whole design
+argument in one line: the page was rendered, halftoned, encoded and on the wire
+in a quarter of a second, and everything after that is paper moving.
+
+The CLI refuses to start if the device reports a fault, and `--cancel-after N`
+arms a watchdog that calls `requestCancel`. Both exist because sending to port
+9100 without a way to stop is how a 250-page runaway happens.
 
 ## Not done
 

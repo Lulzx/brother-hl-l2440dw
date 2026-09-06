@@ -1,4 +1,5 @@
 import BrhbpBridge
+import BrhbpKit
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -34,10 +35,15 @@ final class PrintModel {
     private var engine: PrintEngine?
     private var doc: OpaquePointer?
 
-    /// Held outside actor isolation so `deinit` can cancel it. `Task` is
-    /// `Sendable` and `cancel()` is safe from anywhere, so this is sound; it
-    /// is only `unsafe` because the compiler cannot see that on a stored var.
-    private nonisolated(unsafe) var pollTask: Task<Void, Never>?
+    /// `deinit` on a `@MainActor` type cannot touch isolated state, and
+    /// `@Observable` will not accept `nonisolated` on a stored var. A box
+    /// sidesteps both: the reference is immutable, and `Task.cancel()` is
+    /// safe from anywhere.
+    @ObservationIgnored private let poll = TaskBox()
+
+    private final class TaskBox: @unchecked Sendable {
+        var task: Task<Void, Never>?
+    }
 
     var canPrint: Bool { documentURL != nil && !isPrinting && pageCount > 0 }
 
@@ -88,9 +94,9 @@ final class PrintModel {
     // MARK: - Status
 
     func startPolling() {
-        pollTask?.cancel()
+        poll.task?.cancel()
         let h = host
-        pollTask = Task { [weak self] in
+        poll.task = Task { [weak self] in
             while !Task.isCancelled {
                 let snap = await Device.poll(host: h)
                 await MainActor.run { self?.device = snap }
@@ -99,7 +105,7 @@ final class PrintModel {
         }
     }
 
-    func stopPolling() { pollTask?.cancel(); pollTask = nil }
+    func stopPolling() { poll.task?.cancel(); poll.task = nil }
 
     // MARK: - Printing
 
@@ -176,5 +182,5 @@ final class PrintModel {
         }
     }
 
-    deinit { pollTask?.cancel() }
+    deinit { poll.task?.cancel() }
 }
