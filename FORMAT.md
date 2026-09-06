@@ -244,13 +244,109 @@ an HL-L2400DWE, a model not tested here -- that may be a firmware difference
 within the generation, so the result above should be read as confirmed for the
 HL-L2440DW rather than for the whole family.
 
+## 6b. Status readback: what the device will and will not tell you
+
+Tested against firmware Ver.1.24 with `@PJL ECHO <<VAR>>` delimiters so every
+reply is attributable, and `BOGUSVARNAME3` as a negative control.
+
+**PJL unsolicited status does not exist on this firmware.** Both `USTATUS` and
+`USTATUSOFF` answer `"?"`, i.e. unknown, exactly like the invented control
+name. There is therefore no way to have the printer push `@PJL USTATUS JOB` /
+`PAGE` / `DEVICE` messages back during a job, which is the mechanism a PJL
+driver would normally use to follow progress. Confirmed behaviourally as well:
+holding the 9100 socket open for 45 seconds across two complete print jobs
+returned **zero** back-channel bytes.
+
+So on 9100 the device is effectively write-only during printing. Status has to
+come from a second transport, and SNMP works well for it -- SNMP, IPP and 9100
+can be used concurrently, unlike two simultaneous 9100 connections.
+
+Sampling SNMP once a second across a job gives clean transitions:
+
+| OID | Meaning | Observed |
+|---|---|---|
+| `1.3.6.1.2.1.25.3.5.1.1.1` | `hrPrinterStatus` | `idle` -> `printing` -> `idle` |
+| `1.3.6.1.2.1.25.3.5.1.2.1` | `hrPrinterDetectedErrorState` | `"00 "` throughout (no error) |
+| `1.3.6.1.2.1.43.10.2.1.4.1.1` | `prtMarkerLifeCount` | increments as each sheet lands |
+
+`hrPrinterStatus` goes to `printing` about 1.2 s after the job is written to the
+socket and back to `idle` when the sheet is out, so a poll loop on those three
+OIDs is a workable substitute for the missing PJL back-channel: it gives
+start, finish, per-sheet progress and error state.
+
+Variables that *are* supported (silent to `INQUIRE`), beyond those in section
+1b: `RESOLUTIONX`, `RESOLUTIONY`, `DENSITY`, `PRINTQUALITY`, `IMAGEADAPT`,
+`TIMEOUT`, `AUTOCONT`, `JOBOFFSET`, `HOLD`, `CPLOCK`, `POWERSAVE`. Not
+supported: `USTATUS`, `USTATUSOFF`, `TONERSAVE`, `SLEEP`, `PAGEPROTECT`.
+
+`RESOLUTIONX` and `RESOLUTIONY` are the interesting pair -- the firmware models
+the two axes independently, which matches the asymmetric engine (section 7) and
+is not something brlaser or brpdf ever sets.
+
+## 6c. Consumables, as the device reports them
+
+From `prtMarkerSuppliesTable` (`1.3.6.1.2.1.43.11.1.1`), firmware Ver.1.24:
+
+| Supply | Max capacity (`.8`) | Level (`.9`) | Behaviour |
+|---|---|---|---|
+| `Black Toner Cartridge` | `-2` (unknown) | `-3` | no level reported at all |
+| `Drum Unit` | `15000` | `13103` | counts **down**, one per impression |
+
+Two things worth recording.
+
+The drum is a plain page countdown: 15000 at full, and it fell by exactly 2
+across the two sheets printed while measuring this. Nothing about it is
+mysterious and it can be read remotely at any time.
+
+The toner cartridge reports **no measurable level over SNMP** -- `-2` is
+"unknown" capacity and `-3` is the Printer-MIB code for a supply that is known
+to be present but whose level the device cannot quantify. Whatever percentage a
+host-side utility displays for toner is therefore not coming from the
+cartridge over this interface; it is an estimate computed somewhere else. That
+is worth knowing before treating any toner-remaining figure as a measurement.
+
 ## 7. Resolution modes
 
 | PJL | Raster | Notes |
 |---|---|---|
 | `RESOLUTION = 300`, `RAS1200MODE = FALSE` | 300 x 300 | draft |
 | `RESOLUTION = 600`, `RAS1200MODE = FALSE` | 600 x 600 | default |
-| `RESOLUTION = 600`, `RAS1200MODE = TRUE` | 1200 x 1200 | "HQ1200"; roughly 2.7x the data |
+| `RESOLUTION = 600`, `RAS1200MODE = TRUE` | 1200 x 1200 | "HQ1200"; see below |
+
+### The engine is not square
+
+`prtMarkerAddressability` reports **600 dpi in the feed direction and 2400 dpi
+in the cross-feed direction** (`...43.10.2.1.9.1.1 = 600`, `.10.1.1 = 2400`).
+That is 600 laser scanlines per inch down the page and 2400 modulation steps
+per inch across it, so a literal 1200 x 1200 addressable grid is not something
+this hardware has. Whatever "1200 dpi" means here, it is a mapping onto a
+600 x 2400 engine, not a doubling of both axes.
+
+The firmware's own `RESOLUTION` enum offers six values -- `300, 600, 900, 1200,
+HQ1200, TR1200` -- and it separately knows `RESOLUTIONX` and `RESOLUTIONY` as
+independent settables (section 6b). brlaser, and therefore brpdf, uses none of
+that: it sets `RAS1200MODE = TRUE`, sends `RESOLUTION = 600`, and encodes the
+bitmap exactly as at 600 dpi with twice the rows and twice the stride. That is
+an inherited assumption, not a measured fact.
+
+**What has been established on hardware (firmware Ver.1.24).** A brpdf 1200 dpi
+job -- A4, 13633 rows of 1207 bytes, i.e. 2x in both axes versus the same page
+at 600 dpi -- was accepted and printed, one impression, no error, no operator
+intervention, `hrPrinterDetectedErrorState` clear throughout. So the engine does
+not reject the doubled geometry, and brlaser's assumption is at least not
+catastrophically wrong.
+
+**What is still open.** Whether the extra data becomes real resolution on paper,
+and whether it does so equally in both axes. `tools/restest.py` generates the
+page that answers this: gratings specified in line pairs per inch (so the same
+physical target is drawn at either resolution), each drawn twice -- once with
+vertical bars, which vary along the 2400 dpi cross-feed axis, and once with
+horizontal bars, which vary along the 600 dpi feed axis. If the engine is
+really 600 x 2400, the vertical blocks should stay resolved to a much finer
+pitch than the horizontal ones, and the 300 lp/in block should be stripes on
+the 1200 sheet where it is uniform grey on the 600 sheet. Equal behaviour in
+both axes would mean the addressability figures do not describe the raster
+path. This needs a loupe; it cannot be settled over the network.
 
 ## 8. Sources
 
