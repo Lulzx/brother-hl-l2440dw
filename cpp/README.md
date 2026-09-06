@@ -8,6 +8,13 @@ interface, `brhbp.cc` the implementation, `brhbp_tool` a CLI that mirrors
     make -C cpp test   # 11 byte-for-byte cases against brpdf
     make -C cpp bench
 
+`brhbp_pdf` is the end-to-end path: PDF in, job out, no page bitmap anywhere.
+MuPDF renders one 64-row band straight into a band-sized pixmap, the band is
+halftoned to 1 bit, fed to the encoder and dropped. It builds only if MuPDF is
+installed; the rest does not need it.
+
+    ./cpp/brhbp_pdf -p A4 -r 600 doc.pdf > job.prn
+
 ## Correctness
 
 Output is **byte-identical to `brpdf`** for every case in `conformance.sh`:
@@ -24,11 +31,32 @@ substitute-length scan is a 3-wide sliding window and stays scalar.
 
 ## Measured
 
-    A4 @600 dpi   1.10 ms/page   911 pages/s   encoder working set 64 KB
-    A4 @1200 dpi  2.61 ms/page   383 pages/s   encoder working set 64 KB
+Encoder alone, A4:
 
-The working set is flat across resolutions because nothing scales with page
-size: one reference row, one encoded row, one band.
+    @600 dpi   1.10 ms/page   911 pages/s   encoder working set 64 KB
+    @1200 dpi  2.61 ms/page   383 pages/s   encoder working set 64 KB
+
+End to end through `brhbp_pdf`, 3-page Letter PDF -- open, render, halftone,
+encode:
+
+    dpi     ms/page    peak RSS
+    300        34.5    12,144 KB
+    600        69.2    12,320 KB
+    1200      150.7    12,688 KB
+
+MuPDF's own baseline is 9,568 KB of that, so the pipeline above it is ~2.6 MB
+at 300 dpi and ~3.1 MB at 1200. Sixteen times the pixels for 4.5% more memory:
+nothing in the path scales with page area, only with band width. The vendor
+Android app allocates a 139 MB ARGB_8888 bitmap for one A4 page at 600 dpi.
+
+Correctness of the rendered path was checked against MuPDF's own 1-bit output
+on the same page: 5.673% ink coverage versus 5.685%.
+
+Halftoning is an ordered (Bayer) dither by default, and `-t` selects a plain
+threshold. Ordered dither is stateless per pixel, so a band's output does not
+depend on the band above it -- which is what keeps bands independent. Error
+diffusion would give better tone on photographs but carries state across the
+band boundary and would couple them.
 
 ## Why it is shaped this way
 
