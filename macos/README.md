@@ -42,6 +42,34 @@ MuPDF's `fz_context` is not thread-safe, so previews are serialised among
 themselves and cannot touch a job in flight. 21 pages of a paper render in
 165 ms, about 7 ms each.
 
+## Page selection
+
+A range field in the sidebar and click-to-toggle on the thumbnails, kept in
+step: clicking writes back the shortest text a person would have typed, so
+`1,2,3,7` becomes `1-3,7`. `1-3,5,8-` parses, overlaps merge, an empty field
+means every page, and out-of-range or reversed input is refused rather than
+silently truncated. `PageSelection` lives in the kit so the field and
+`brhbp-cli --pages` cannot disagree.
+
+One subtlety it has to get right: duplex parity follows position in the
+*printed* sequence, not the original page numbers. Printing 3,5,7 puts page 5
+on the back of the first sheet, so testing `page % 2` would rotate the wrong
+ones.
+
+## Preview sizing
+
+Previews are rendered to a fixed longest edge (700 px) rather than a fixed dpi.
+At a fixed dpi a large-format drawing costs twenty times an A4 page to show the
+same thumbnail: one document here was carrying 2.34 megapixels per page. Sizing
+to the thumbnail put every document on the same budget -- 28.1 MB of pixels for
+twelve pages became 4.2 MB, and rendering went from 175 ms to 145 ms on that
+document and 104 ms to 71 ms on another.
+
+Worth recording what did *not* help, since both were plausible: lowering the
+preview dpi from 110 to 40 saved only 25%, and opening the document on all six
+pool workers costs 1-13 ms. Neither was the bottleneck. The cost is per-page
+content decoding, which is why capping the pixel count is what actually moved.
+
 ### Two bugs worth recording
 
 **Previews rendered but never appeared.** Every thumbnail past the first sat on

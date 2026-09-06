@@ -62,6 +62,12 @@ bool      brhbp_doc_render_band(BrhbpDoc*, int32_t page, int32_t dpi,
 // 8-bit gray preview of a whole page at `scale` (points -> pixels).
 bool      brhbp_doc_preview(BrhbpDoc*, int32_t page, float scale,
                             int32_t* out_w, int32_t* out_h, uint8_t** out_gray);
+
+// As above, but sized so the longer edge is `max_edge` pixels regardless of
+// how big the page is. A fixed dpi renders an A0 drawing at twenty times the
+// pixels of an A4 page for the same on-screen thumbnail; this does not.
+bool      brhbp_doc_preview_fit(BrhbpDoc*, int32_t page, int32_t max_edge,
+                                int32_t* out_w, int32_t* out_h, uint8_t** out_gray);
 void      brhbp_free(void*);
 void      brhbp_doc_close(BrhbpDoc*);
 

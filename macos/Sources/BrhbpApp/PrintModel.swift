@@ -13,6 +13,13 @@ final class PrintModel {
     var previews: [Int: CGImage] = [:]
     var selectedPage = 0
 
+    /// What the user typed, and what it resolves to. The set is the source of
+    /// truth for printing; the text is kept in step so clicking thumbnails
+    /// produces something a person would have typed.
+    var pageSpec = ""
+    var selection: Set<Int> = []
+    var specIsValid = true
+
     // Destination
     /// Remembered between launches. No address is baked into the source; the
     /// first run picks up BRPRINTER if it is set, otherwise the field starts
@@ -53,7 +60,41 @@ final class PrintModel {
         var task: Task<Void, Never>?
     }
 
-    var canPrint: Bool { documentURL != nil && !isPrinting && pageCount > 0 }
+    var canPrint: Bool {
+        documentURL != nil && !isPrinting && pageCount > 0
+            && specIsValid && !selection.isEmpty
+    }
+
+    var selectionSummary: String {
+        guard pageCount > 0 else { return "" }
+        if selection.count == pageCount { return "All \(pageCount) pages" }
+        if selection.isEmpty { return "No pages selected" }
+        return "\(selection.count) of \(pageCount) pages"
+    }
+
+    /// Re-reads `pageSpec`. Invalid text leaves the previous selection alone
+    /// rather than clearing it mid-keystroke.
+    func applyPageSpec() {
+        guard let s = PageSelection.parse(pageSpec, pageCount: pageCount) else {
+            specIsValid = false
+            return
+        }
+        specIsValid = true
+        selection = s
+    }
+
+    func toggle(page: Int) {
+        guard pageCount > 0 else { return }
+        if selection.contains(page) { selection.remove(page) } else { selection.insert(page) }
+        pageSpec = PageSelection.format(selection, pageCount: pageCount)
+        specIsValid = true
+    }
+
+    func selectAll() {
+        selection = Set(0..<pageCount)
+        pageSpec = ""
+        specIsValid = true
+    }
 
     // MARK: - Document
 
@@ -71,6 +112,9 @@ final class PrintModel {
             if scoped { url.stopAccessingSecurityScopedResource() }
             await MainActor.run {
                 self.pageCount = n
+                self.selection = Set(0..<n)
+                self.pageSpec = ""
+                self.specIsValid = true
                 self.statusLine = n == 0
                     ? "Could not open that file."
                     : "\(n) page\(n == 1 ? "" : "s") ready."
@@ -93,7 +137,7 @@ final class PrintModel {
         guard previews[page] == nil, !inFlight.contains(page), page < pageCount else { return }
         inFlight.insert(page)
         Task { [renderer] in
-            let bmp = await renderer.render(page: page)
+            let bmp = await renderer.render(page: page, maxEdge: 700)
             await MainActor.run {
                 self.inFlight.remove(page)
                 guard let bmp, let image = Self.makeImage(bmp) else { return }
@@ -149,6 +193,7 @@ final class PrintModel {
         // Snapshot the settings: the task must not read back through `self`.
         let (h, prt, pap, res, cps) = (host, port, paper, dpi, copies)
         let (dup, save, half) = (duplex, tonerSave, halftone)
+        let pgs = selection.sorted()
 
         // One weak reference, captured once. Nesting two `[weak self]` lists
         // makes the outer one a captured var, which Swift 6 rejects.
@@ -166,7 +211,8 @@ final class PrintModel {
         Task {
             await e.run(documentPath: path, host: h, port: prt, paper: pap,
                         dpi: res, copies: cps, duplex: dup,
-                        tonerSave: save, halftone: half, onProgress: handler)
+                        tonerSave: save, halftone: half, pages: pgs,
+                        onProgress: handler)
             done()
         }
     }

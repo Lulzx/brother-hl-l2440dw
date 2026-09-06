@@ -140,7 +140,7 @@ public actor PrintEngine {
         duplex: DuplexMode,
         tonerSave: Bool,
         halftone: Halftone,
-        maxPages: Int32 = 0,
+        pages: [Int] = [],
         onProgress: @Sendable @escaping (PrintProgress) -> Void
     ) async {
         onProgress(.connecting)
@@ -149,8 +149,8 @@ public actor PrintEngine {
             onProgress(.failed("Could not open the document.")); return
         }
         defer { brhbp_doc_close(doc) }
-        let pages = Int(brhbp_doc_pages(doc))
-        guard pages > 0 else { onProgress(.failed("The document has no pages.")); return }
+        let pageTotal = Int(brhbp_doc_pages(doc))
+        guard pageTotal > 0 else { onProgress(.failed("The document has no pages.")); return }
 
         // One socket for the whole document: port 9100 accepts a single
         // connection at a time and refuses the next for a second or two.
@@ -175,10 +175,15 @@ public actor PrintEngine {
         guard brhbp_begin(j) else { onProgress(.failed("The printer closed the connection.")); return }
 
         var committed = 0
-        let limit = maxPages > 0 ? min(pages, Int(maxPages)) : pages
-        for p in 0..<limit {
+        // An explicit selection prints in page order; empty means everything.
+        let sequence = pages.isEmpty ? Array(0..<pageTotal)
+                                     : pages.filter { $0 >= 0 && $0 < pageTotal }.sorted()
+        guard !sequence.isEmpty else {
+            onProgress(.failed("No pages selected.")); return
+        }
+        for (i, p) in sequence.enumerated() {
             guard brhbp_begin_page(j) else { break }
-            onProgress(.page(index: p + 1, of: limit))
+            onProgress(.page(index: i + 1, of: sequence.count))
 
             var y: Int32 = 0
             var pageOK = true
@@ -186,7 +191,10 @@ public actor PrintEngine {
                 let n = min(bandRows, g.rows - y)
                 // Back side of a duplex sheet must be pre-rotated: the engine
                 // prints it as received and the sheet flips about its long edge.
-                let back = duplex.rotatesBackSide && (p % 2 == 1)
+                // Parity follows position in the printed sequence: printing
+                // pages 3,5,7 puts page 5 on the back of the first sheet, so
+                // the original page number is the wrong thing to test.
+                let back = duplex.rotatesBackSide && (i % 2 == 1)
                 let rendered = band.withUnsafeMutableBufferPointer { buf in
                     brhbp_doc_render_band(doc, Int32(p), dpi, paper.rawValue,
                                           y, n, halftone.rawValue, back,

@@ -245,6 +245,21 @@ bool brhbp_doc_preview(BrhbpDoc* d, int32_t pno, float scale,
   return true;
 }
 
+bool brhbp_doc_preview_fit(BrhbpDoc* d, int32_t pno, int32_t max_edge,
+                           int32_t* out_w, int32_t* out_h, uint8_t** out_gray) {
+  fz_page* page = nullptr;
+  fz_try(d->ctx) page = fz_load_page(d->ctx, d->doc, pno);
+  fz_catch(d->ctx) return false;
+  const fz_rect b = fz_bound_page(d->ctx, page);
+  fz_drop_page(d->ctx, page);
+  const float w_pt = b.x1 - b.x0, h_pt = b.y1 - b.y0;
+  const float longest = w_pt > h_pt ? w_pt : h_pt;
+  if (longest <= 0) return false;
+  float scale = static_cast<float>(max_edge) / longest;
+  if (scale > 4.0f) scale = 4.0f;          // tiny pages: do not explode
+  return brhbp_doc_preview(d, pno, scale, out_w, out_h, out_gray);
+}
+
 void brhbp_free(void* p) { std::free(p); }
 
 void brhbp_doc_close(BrhbpDoc* d) {

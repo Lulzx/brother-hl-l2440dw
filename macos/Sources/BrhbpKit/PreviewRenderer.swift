@@ -27,11 +27,14 @@ public actor PreviewRenderer {
         return Int(brhbp_doc_pages(d))
     }
 
-    public func render(page: Int, dpi: Double = 110) -> PreviewBitmap? {
+    /// `maxEdge` is the longer side in pixels. Sizing to the thumbnail rather
+    /// than to a fixed dpi is what keeps a large-format drawing from costing
+    /// twenty times an A4 page to show at the same size on screen.
+    public func render(page: Int, maxEdge: Int = 700) -> PreviewBitmap? {
         guard let d = doc else { return nil }
         var w: Int32 = 0, h: Int32 = 0
         var gray: UnsafeMutablePointer<UInt8>?
-        guard brhbp_doc_preview(d, Int32(page), Float(dpi / 72.0), &w, &h, &gray),
+        guard brhbp_doc_preview_fit(d, Int32(page), Int32(maxEdge), &w, &h, &gray),
               let g = gray else { return nil }
         defer { brhbp_free(g) }
         let count = Int(w) * Int(h)
@@ -76,8 +79,8 @@ public final class PreviewPool: Sendable {
         }
     }
 
-    public func render(page: Int, dpi: Double = 110) async -> PreviewBitmap? {
-        await workers[page % workers.count].render(page: page, dpi: dpi)
+    public func render(page: Int, maxEdge: Int = 700) async -> PreviewBitmap? {
+        await workers[page % workers.count].render(page: page, maxEdge: maxEdge)
     }
 
     public func close() async {

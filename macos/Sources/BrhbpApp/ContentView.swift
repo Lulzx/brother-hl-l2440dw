@@ -63,6 +63,33 @@ private struct SettingsSidebar: View {
                 DeviceBadge(device: model.device, hostIsEmpty: model.host.isEmpty)
             }
 
+            if model.pageCount > 0 {
+                Section("Pages") {
+                    LabeledContent("Print") {
+                        TextField("all", text: $model.pageSpec)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 150)
+                            .foregroundStyle(model.specIsValid ? Color.primary : Color.red)
+                            .onChange(of: model.pageSpec) { model.applyPageSpec() }
+                    }
+                    HStack {
+                        Text(model.specIsValid ? model.selectionSummary
+                                               : "Not a valid range")
+                            .font(.caption)
+                            .foregroundStyle(model.specIsValid ? Color.secondary : Color.red)
+                        Spacer()
+                        if model.selection.count != model.pageCount {
+                            Button("All") { model.selectAll() }
+                                .buttonStyle(.link)
+                                .font(.caption)
+                        }
+                    }
+                    Text("e.g. 1-3,5,8-  \u{00B7}  or click pages to include them")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             Section("Paper") {
                 Picker("Size", selection: $model.paper) {
                     ForEach(Paper.allCases) { Text($0.label).tag($0) }
@@ -186,10 +213,15 @@ private struct PageThumb: View {
     var body: some View {
         let image = model.previews[index]
         let isCurrent = model.isPrinting && model.currentPage == index + 1
-        return content(image: image, isCurrent: isCurrent)
+        let included = model.selection.contains(index)
+        return content(image: image, isCurrent: isCurrent, included: included)
+            .contentShape(.rect)
+            .onTapGesture { model.toggle(page: index) }
+            .help(included ? "Click to leave this page out"
+                           : "Click to include this page")
     }
 
-    private func content(image: CGImage?, isCurrent: Bool) -> some View {
+    private func content(image: CGImage?, isCurrent: Bool, included: Bool) -> some View {
         VStack(spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(.white)
@@ -204,14 +236,27 @@ private struct PageThumb: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(isCurrent ? Color.accentColor : .black.opacity(0.12),
-                            lineWidth: isCurrent ? 2.5 : 0.5)
+                    .stroke(isCurrent ? Color.accentColor
+                                      : (included ? .black.opacity(0.12) : .secondary.opacity(0.35)),
+                            lineWidth: isCurrent ? 2.5 : (included ? 0.5 : 1.5))
             }
-            .shadow(color: .black.opacity(0.15), radius: 5, y: 2)
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: included ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, included ? Color.accentColor : Color.secondary)
+                    .padding(6)
+                    .shadow(radius: 1)
+            }
+            .opacity(included ? 1 : 0.4)
+            .saturation(included ? 1 : 0)
+            .shadow(color: .black.opacity(included ? 0.15 : 0.05), radius: 5, y: 2)
+            .animation(.smooth(duration: 0.18), value: included)
 
             Text("\(index + 1)")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+                .foregroundStyle(isCurrent ? Color.accentColor
+                                           : Color.secondary.opacity(included ? 1 : 0.5))
         }
     }
 }
