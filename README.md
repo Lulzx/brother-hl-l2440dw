@@ -124,9 +124,9 @@ Any rasteriser that emits raw PBM works (`pdftoppm -mono`, Ghostscript
 
 ## The printer on this network
 
-The target device is wired in as the default: a **Brother HL-L2440DW at
-`192.168.1.17`** (`BRWC8A3E8DC3C17`, MAC `c8:a3:e8:dc:3c:17`), ports 9100, 631,
-515, 80 and 443 open. Override with `BRPRINTER` / `PRINTER` anywhere below.
+The default target is a **Brother HL-L2440DW** on the local network, with ports
+9100, 631, 515, 80 and 443 open. Set your own address with `BRPRINTER` /
+`PRINTER` in the environment, or on the command line, anywhere below.
 
 ```sh
 make probe                             # everything the printer will say about itself

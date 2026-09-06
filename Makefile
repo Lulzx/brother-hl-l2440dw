@@ -1,7 +1,7 @@
 CC      ?= cc
 CFLAGS  ?= -std=c99 -O2 -Wall -Wextra
 PDF     ?= test/sample.pdf
-# The HL-L2440DW on this network (BRWC8A3E8DC3C17, c8:a3:e8:dc:3c:17).
+# The target printer. Override on the command line or in the environment.
 PRINTER ?= 192.168.1.17
 PORT    ?= 9100
 PAPER   ?= LETTER
