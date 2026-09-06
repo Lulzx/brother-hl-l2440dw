@@ -225,9 +225,24 @@ bytes; the following row is then re-encoded without a reference.
 The engine flips on the long edge and prints the back side as received, so the
 host must send even pages rotated 180 degrees (this is the `Duplex rotated`
 attribute in brlaser's PPD, normally done by CUPS). brpdf does the rotation
-itself before cropping the margins. Untested on real hardware here; brlaser
-issue #212 reports garbage back pages on an HL-L2400DWE, which may point to a
-firmware difference in this generation, so treat duplex as experimental.
+itself before cropping the margins.
+
+**Confirmed on real hardware for long-edge duplex.** A brpdf duplex job printed
+on an HL-L2440DW (firmware Ver.1.24) advanced `prtMarkerLifeCount` by exactly 2
+on a single sheet, and on the calibration sheet the back side reads upright when
+the page is turned about its long edge -- so the 180-degree pre-rotation is
+correct for this engine and is the right default. See section 1b.
+
+Do not be misled by the printer's IPP `pwg-raster-document-sheet-back = normal`,
+which says the back image should *not* be rotated: that describes only the
+AirPrint/PWG path, where the firmware rasterises for itself and compensates
+internally. It does not apply to the HBP path documented here.
+
+Two things remain open. Short-edge binding (`BINDING = SHORTEDGE`) is untested
+and brpdf does not emit it. And brlaser issue #212 reports garbage back pages on
+an HL-L2400DWE, a model not tested here -- that may be a firmware difference
+within the generation, so the result above should be read as confirmed for the
+HL-L2440DW rather than for the whole family.
 
 ## 7. Resolution modes
 
