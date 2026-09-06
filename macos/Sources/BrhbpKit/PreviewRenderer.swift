@@ -48,3 +48,39 @@ public actor PreviewRenderer {
     // Callers close explicitly, and the handle is freed when `open` is called
     // again, so the only leak window is process exit.
 }
+
+/// A small pool of independent renderers.
+///
+/// `PreviewRenderer` is an actor, so a single one serialises every page. That
+/// is fine for text (a few ms each) and obviously wrong for scanned documents,
+/// where a page costs 40 ms and a screenful is a dozen pages. MuPDF's
+/// `fz_context` cannot be shared across threads, so the way to go wider is
+/// more contexts, not locks: each worker opens the document independently.
+///
+/// Pages are assigned `page % count`, which needs no coordination at all --
+/// the pool itself holds no mutable state and is therefore plainly `Sendable`.
+public final class PreviewPool: Sendable {
+    private let workers: [PreviewRenderer]
+
+    public init(count: Int = min(6, ProcessInfo.processInfo.activeProcessorCount)) {
+        workers = (0..<max(1, count)).map { _ in PreviewRenderer() }
+    }
+
+    /// Opens the document on every worker. Returns the page count.
+    public func open(path: String) async -> Int {
+        await withTaskGroup(of: Int.self) { group in
+            for w in workers { group.addTask { await w.open(path: path) } }
+            var n = 0
+            for await r in group { n = max(n, r) }
+            return n
+        }
+    }
+
+    public func render(page: Int, dpi: Double = 110) async -> PreviewBitmap? {
+        await workers[page % workers.count].render(page: page, dpi: dpi)
+    }
+
+    public func close() async {
+        for w in workers { await w.close() }
+    }
+}

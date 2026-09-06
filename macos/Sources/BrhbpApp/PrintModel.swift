@@ -14,7 +14,14 @@ final class PrintModel {
     var selectedPage = 0
 
     // Destination
-    var host = ProcessInfo.processInfo.environment["BRPRINTER"] ?? ""
+    /// Remembered between launches. No address is baked into the source; the
+    /// first run picks up BRPRINTER if it is set, otherwise the field starts
+    /// empty and whatever is typed is kept.
+    var host: String = UserDefaults.standard.string(forKey: "printerHost")
+        ?? ProcessInfo.processInfo.environment["BRPRINTER"]
+        ?? "" {
+        didSet { UserDefaults.standard.set(host, forKey: "printerHost") }
+    }
     var port: UInt16 = 9100
 
     // Settings
@@ -33,7 +40,7 @@ final class PrintModel {
     var cancelling = false
 
     private var engine: PrintEngine?
-    @ObservationIgnored private let renderer = PreviewRenderer()
+    @ObservationIgnored private let renderer = PreviewPool()
     private var inFlight: Set<Int> = []
 
     /// `deinit` on a `@MainActor` type cannot touch isolated state, and
@@ -67,6 +74,11 @@ final class PrintModel {
                 self.statusLine = n == 0
                     ? "Could not open that file."
                     : "\(n) page\(n == 1 ? "" : "s") ready."
+                // Belt and braces: kick off the first screenful directly
+                // rather than waiting for the grid to ask. Cheap -- a page is
+                // a few milliseconds -- and it means the window is never
+                // showing spinners it has not actually started work for.
+                for p in 0..<min(n, 12) { self.renderPreview(page: p) }
             }
         }
     }
@@ -101,13 +113,20 @@ final class PrintModel {
 
     // MARK: - Status
 
+    /// One long-lived loop that re-reads the address every tick, so editing
+    /// the field takes effect without restarting anything, and an empty field
+    /// simply idles instead of polling nothing.
     func startPolling() {
         poll.task?.cancel()
-        let h = host
         poll.task = Task { [weak self] in
             while !Task.isCancelled {
-                let snap = await Device.poll(host: h)
-                await MainActor.run { self?.device = snap }
+                let h = await MainActor.run { self?.host ?? "" }
+                if h.isEmpty {
+                    await MainActor.run { self?.device = DeviceSnapshot() }
+                } else {
+                    let snap = await Device.poll(host: h)
+                    await MainActor.run { self?.device = snap }
+                }
                 try? await Task.sleep(for: .seconds(3))
             }
         }

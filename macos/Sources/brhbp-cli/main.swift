@@ -66,7 +66,7 @@ if !statusOnly && path.isEmpty {
 // Exercises the same PreviewRenderer actor the UI drives, so the async path
 // can be checked without a window.
 if previewCount > 0 {
-    let r = PreviewRenderer()
+    let r = PreviewPool()
     let n = await r.open(path: path)
     print("pages: \(n)")
     guard n > 0 else { exit(1) }

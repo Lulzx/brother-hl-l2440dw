@@ -189,7 +189,15 @@ DeviceStatus PollStatus(const char* host, const char* community, int timeout_ms)
   uint8_t tag; int64_t iv; const uint8_t* sv = nullptr; size_t sl = 0;
   std::vector<uint8_t> scratch;
 
-  if (Query(host, community, "1.3.6.1.2.1.25.3.5.1.1.1", timeout_ms, &tag, &iv, &sv, &sl, &scratch)) {
+  // UDP, and this device drops the occasional request while it settles after
+  // a fault or between jobs. One retry turns a transient miss from
+  // "unreachable" into a slightly later answer.
+  bool got = Query(host, community, "1.3.6.1.2.1.25.3.5.1.1.1", timeout_ms,
+                   &tag, &iv, &sv, &sl, &scratch);
+  if (!got)
+    got = Query(host, community, "1.3.6.1.2.1.25.3.5.1.1.1", timeout_ms,
+                &tag, &iv, &sv, &sl, &scratch);
+  if (got) {
     st.ok = true;
     switch (iv) {
       case 1: st.state = PrinterState::kOther; break;

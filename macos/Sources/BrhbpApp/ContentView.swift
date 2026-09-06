@@ -56,12 +56,11 @@ private struct SettingsSidebar: View {
         Form {
             Section("Printer") {
                 LabeledContent("Address") {
-                    TextField("host", text: $model.host)
+                    TextField("address", text: $model.host)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 150)
-                        .onSubmit { model.startPolling() }
                 }
-                DeviceBadge(device: model.device)
+                DeviceBadge(device: model.device, hostIsEmpty: model.host.isEmpty)
             }
 
             Section("Paper") {
@@ -111,6 +110,7 @@ private struct SettingsSidebar: View {
 
 private struct DeviceBadge: View {
     let device: DeviceSnapshot
+    var hostIsEmpty = false
 
     private var tint: Color {
         guard device.reachable else { return .secondary }
@@ -121,7 +121,8 @@ private struct DeviceBadge: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(tint).frame(width: 8, height: 8)
-            Text(device.reachable ? device.state.label : "Not reachable")
+            Text(device.reachable ? device.state.label
+                                  : (hostIsEmpty ? "No address set" : "Not reachable"))
                 .foregroundStyle(device.reachable ? .primary : .secondary)
             Spacer()
             if device.impressions >= 0 {
@@ -161,8 +162,13 @@ private struct PreviewPane: View {
                         // would never invalidate anything: the thumbnails were
                         // being rendered and silently never shown. Reading it
                         // inside PageThumb.body puts it back under tracking.
+                        // .task rather than .onAppear: when the page count
+                        // goes 0 -> N in the same pass the grid appears,
+                        // onAppear is not reliably delivered for the items
+                        // that are already on screen, so the first screenful
+                        // sat on spinners until a scroll nudged it.
                         PageThumb(model: model, index: i)
-                            .onAppear { model.renderPreview(page: i) }
+                            .task(id: i) { model.renderPreview(page: i) }
                     }
                 }
                 .padding(24)
