@@ -1,13 +1,19 @@
-# Driver-free printing to a Brother HL-L2440DW (simulated)
+# Native HBP printing to a Brother HL-L2440DW
 
-The HL-L2440DW has no PCL or PostScript interpreter. It is a host-based engine
-that only accepts Brother's compressed 1-bit raster wrapped in PJL. This repo
-contains the reverse-engineered description of that stream (`FORMAT.md`), a
-~400-line dependency-free C program that produces it from any PDF, and a
-software model of the printer that decodes the stream and renders what would
-come out of the paper tray. The encoder is verified in simulation; the printer
-itself has been found on the network and probed, but nothing has been printed
-on paper yet.
+The HL-L2440DW has no PCL or PostScript interpreter. It is a host-based engine:
+its native path is Brother's compressed 1-bit raster ("HBP") wrapped in PJL,
+which the host must produce in full. This repo contains the reverse-engineered
+description of that stream (`FORMAT.md`), a ~400-line dependency-free C program
+that produces it from any PDF, and a software model of the printer that decodes
+the stream and renders what would come out of the paper tray. The encoder is
+verified byte-for-byte against brlaser, in simulation, and on the hardware
+itself.
+
+**This is not the only way to print to this device, and for most purposes it is
+not the easiest.** The printer is also Mopria 2.1 certified and speaks IPP
+Everywhere, so a stock CUPS queue drives it with no driver at all. The reason to
+use the HBP path is resolution and control, not necessity -- see *Two ways to
+print* below for the measured trade-off.
 
 ```
 brpdf.c        PBM pages -> Brother HBP job (PJL + mode-1030 raster)
@@ -19,6 +25,63 @@ FORMAT.md      the wire protocol
 ref/           brlaser's original encoder + harness for byte-for-byte conformance
 test/          sample PDF and the end-to-end test script
 ```
+
+## Two ways to print
+
+### The easy one: a driverless CUPS queue
+
+The printer is Mopria 2.1 certified and advertises `image/urf` and
+`image/pwg-raster`, so CUPS drives it with no driver and no vendor software:
+
+```sh
+lpadmin -p brother -E -v ipp://192.168.1.17/ipp/print -m everywhere
+lp -d brother doc.pdf
+```
+
+That is the whole setup. CUPS generates a PPD from the printer's own IPP
+attributes, including its model name. Note the queue must be added *by IP*: the
+unit does not answer mDNS (see below), so it never appears in a printer picker
+on its own. brlaser is a second, classic CUPS route -- it is a CUPS filter, and
+`ref/` is built from its encoder.
+
+### The catch, measured
+
+CUPS's generated PPD collapses the printer's resolutions into three quality
+tiers and there is no 600 dpi among them:
+
+    *DefaultResolution: 300dpi
+    *cupsPrintQuality Draft:  HWResolution [300 150]
+    *cupsPrintQuality Normal: HWResolution [300 300]
+    *cupsPrintQuality High:   HWResolution [1200 1200]
+
+The printer meanwhile reports `printer-resolution-default = 600dpi` and
+`pwg-raster-document-resolution-supported = 600dpi` -- 600 is both its default
+and the *only* PWG raster resolution it claims to want. A default `lp` job
+therefore hands the engine 300 dpi and lets the firmware scale it, against an
+engine whose SNMP `prtMarkerAddressability` is 600 dpi in the feed direction.
+Confirmed by running the filter chain by hand: `rastertopwg` logs
+`HWResolution = [300 300]` and emits a 2550x3300 page.
+
+Same PDF page, same physical size, both printed on the hardware:
+
+| | driverless CUPS | `brprint` (HBP) |
+|---|---|---|
+| Setup | one `lpadmin` line | `make` |
+| Raster sent | 2550x3300 = 8.5x11in **@300dpi** | 5100x6600 = 8.5x11in **@600dpi** |
+| Host intermediate | 7.8 MB, 8-bit gray | 4.2 MB, 1-bit PBM |
+| On the wire | 409,611 B (PWG) | 462,783 B (HBP) |
+| Duplex back side | `normal`, no rotation | 180-degree pre-rotation |
+
+Near-identical bytes on the wire, but the HBP stream carries 4x the pixels for
+them: mode-1030 delta coding on 1-bit data fits text far better than PWG on
+8-bit gray.
+
+So: use the CUPS queue for everyday printing. Use this repo when you want the
+engine's native 600 dpi, exact control of halftoning and placement, or a print
+path with no spooler, no PPD and no CUPS at all -- one C99 binary and a socket.
+Whether the driverless path can be pushed to 600 dpi by overriding
+`printer-resolution` (which the printer does list in
+`job-creation-attributes-supported`) is untested.
 
 ## Print a PDF
 
@@ -84,9 +147,10 @@ Measured on the 3-page Letter sample at 600 dpi: 12.6 MB of bitmap becomes a
 ## What is not verified
 
 The printer has been interrogated over PJL, SNMP and IPP (`make probe`,
-findings in `FORMAT.md` section 1b), which confirmed the repo's central premise
-first-hand: the device's own IEEE-1284 ID is `CMD:PJL,HBP,URF`, so it really has
-no PCL or PostScript interpreter.
+findings in `FORMAT.md` section 1b). The device's own IEEE-1284 ID is
+`CMD:PJL,HBP,URF`: no PCL and no PostScript interpreter, confirmed first-hand,
+but also `URF` -- the AirPrint raster that makes the driverless path above
+work.
 
 A `brpdf` duplex job has also been printed on the real device (HL-L2440DW,
 firmware Ver.1.24) and was accepted cleanly -- the impression counter advanced
@@ -110,5 +174,5 @@ the same assumption and so agree with each other regardless.
 To close it: `make cal.prn && nc 192.168.1.17 9100 < cal.prn`, then measure
 paper edge to the solid corner L. 2.82mm means brlaser is right; 4.23mm, or a
 sliced-off L, means the firmware is and `brpdf` is losing content at the edges.
-The printer also does AirPrint/IPP Everywhere, which is an alternative
-driver-free route that avoids the proprietary format entirely.
+The 12pt figure may well be only what the IPP/AirPrint stack guarantees rather
+than the engine's physical limit.

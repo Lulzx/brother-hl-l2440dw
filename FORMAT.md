@@ -13,9 +13,12 @@ MFC-L27xx) is driven by the open-source brlaser CUPS filter, and users report
 brlaser working on the HL-L2400DW/HL-L2440DW/HL-L2460DW (GitHub issues #212,
 #216, #222), so the stream below is known to be accepted by this hardware.
 
-The printer also supports AirPrint/Mopria (`URF`, PWG raster over IPP). That is
-a second, standards-based, driver-free path, but it is not the Brother pipeline
-and is out of scope here.
+The printer also supports AirPrint/Mopria (`URF`, PWG raster over IPP) and is
+Mopria 2.1 certified. That is a second, standards-based, driver-free path: a
+stock CUPS `-m everywhere` queue drives the device with no driver at all. It is
+not the Brother pipeline and is not documented here, but it is the easier route
+for everyday printing -- with the caveat that CUPS's generated PPD offers no
+600 dpi tier and defaults to 300. See the README, *Two ways to print*.
 
 Transport: raw TCP port 9100 (JetDirect), USB bulk, or IPP with the job body
 sent as `application/octet-stream`. The printer does not acknowledge raw jobs;
