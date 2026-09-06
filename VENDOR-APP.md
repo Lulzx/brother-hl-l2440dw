@@ -132,9 +132,24 @@ The colour space is `SGRAY` (8 bits per pixel) or `SRGB` (24), against the
 | PWG `SGRAY`, mono | 34.8 MB |
 | HBP mode-1030, native | 4.3 MB |
 
-On the wire, for the same real page measured earlier against this hardware:
-HBP 462,783 B versus 8-bit-gray raster 906,267 B -- about half the bytes for
-identical output.
+On the wire the comparison goes the *other* way once gzip is counted, and it
+is worth being straight about it. Same page, A4 at 600 dpi, both pipelines run
+end to end:
+
+| Stream | Bytes |
+|---|---|
+| PWG raster, raw | 908,023 |
+| HBP mode-1030 | 465,174 |
+| **PWG raster + gzip (what the app sends)** | **54,589** |
+
+mode-1030 is a delta scheme with no entropy coder; gzip is a real one. On a
+mostly-white page gzip beats it by 8.5x. Note this only applies on models where
+the app enables its gzip layer -- `p107s1/g.java` gates it behind a per-model
+flag, and the other codecs return the identity.
+
+That difference does not matter in practice, which is the point. At 100 Mbit
+the gap is 37 ms versus 4 ms, against an engine that spends ~14,000 ms per
+sheet. Wire size is not the constraint; host cost is.
 
 Worth noting the gzip step is *not* the bottleneck: compressing a full page of
 8-bit gray takes ~0.06 s for text on a desktop CPU. The cost is everywhere
