@@ -16,3 +16,5 @@ cpp/ippcancel_tool
 cpp/status_tool
 cpp/snmp_encode_test
 cpp/android/libbrhbp.dylib
+macos/.build/
+macos/build/
