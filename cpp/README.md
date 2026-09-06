@@ -1,8 +1,36 @@
 # Streaming C++ encoder interface
 
-`brhbp.h` is an interface sketch, not an implementation. It exists to pin down
-the shape a fast client needs, which is the opposite of how the vendor apps
-behave: render and spool every page first, then start printing.
+A working streaming encoder for the Brother HBP raster format. `brhbp.h` is the
+interface, `brhbp.cc` the implementation, `brhbp_tool` a CLI that mirrors
+`brpdf` so the two can be diffed, and `brhbp_bench` an in-process benchmark.
+
+    make -C cpp        # build
+    make -C cpp test   # 11 byte-for-byte cases against brpdf
+    make -C cpp bench
+
+## Correctness
+
+Output is **byte-identical to `brpdf`** for every case in `conformance.sh`:
+both resolutions either side of the default, multi-page, duplex with and
+without back-page rotation, copies, toner save, and photographic content that
+defeats the delta coder. `brpdf` is in turn byte-identical to brlaser, so the
+C++ encoder inherits that verification rather than asserting its own.
+
+Every optimisation in `brhbp.cc` changes only how fast the same answer is
+found, never the answer. The three hot loops -- common-prefix skip,
+common-suffix trim, run length -- are word-at-a-time with `__builtin_ctzll`
+instead of byte-at-a-time, with scalar fallbacks for big-endian. The
+substitute-length scan is a 3-wide sliding window and stays scalar.
+
+## Measured
+
+    A4 @600 dpi   1.10 ms/page   911 pages/s   encoder working set 64 KB
+    A4 @1200 dpi  2.61 ms/page   383 pages/s   encoder working set 64 KB
+
+The working set is flat across resolutions because nothing scales with page
+size: one reference row, one encoded row, one band.
+
+## Why it is shaped this way
 
 The design follows one property of the wire format. Bands are self-contained --
 a band never references data in a previous band -- so a page can be emitted 64

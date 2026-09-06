@@ -48,10 +48,19 @@ cal-preview: cal.prn
 	python3 brsim.py decode cal.prn -o cal-out -v
 
 # Full conformance + round-trip test suite.
+cpp:
+	$(MAKE) -C cpp
+
+cpp-test: brpdf
+	$(MAKE) -C cpp test
+
+cpp-bench:
+	$(MAKE) -C cpp bench
+
 test: brpdf ref/refenc
 	sh test/roundtrip.sh $(PDF)
 
 clean:
 	rm -rf brpdf ref/refenc job.prn cal.prn out cal-out test/out* test/spool test/*.prn test/*.pbm
 
-.PHONY: all simulate print status probe cal-preview test clean
+.PHONY: all cpp cpp-test cpp-bench simulate print status probe cal-preview test clean

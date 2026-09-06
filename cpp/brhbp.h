@@ -117,9 +117,14 @@ class JobEncoder {
   int rows_remaining() const { return geom_.rows - row_index_; }
 
  private:
+  bool Emit(const void* p, size_t n);
+  bool EmitF(const char* fmt, ...) __attribute__((format(printf, 2, 3)));
   bool FlushBand();
-  void EncodeRowAgainstRef(const uint8_t* row);
+  void PutOverflow(int v);
+  void PutSubstitute(int offset, const uint8_t* p, int len);
+  void PutRepeat(int offset, int count, uint8_t value);
   void EncodeRowNoRef(const uint8_t* row);
+  void EncodeRowRef(const uint8_t* row);
 
   Sink*        sink_;
   JobSettings  settings_;
@@ -145,6 +150,8 @@ class JobEncoder {
   size_t   band_len_ = 0;
   int      band_rows_ = 0;
   int      row_index_ = 0;
+  bool     raster_open_ = false;
+  bool     page_header_done_ = false;
   bool     page_open_ = false;
 };
 
